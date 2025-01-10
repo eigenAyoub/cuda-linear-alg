@@ -4,47 +4,43 @@
 
 #include "cuda_runtime.h"
 
-#define TILE_WIDTH 16 
+#define TILE_WIDTH 32  
+
+// we would like the TILE_WIDTH to be the same as the block width.
+// so far we assume that the matrix is squared N x N
+
 #define BATCH_SIZE 32
 
-// borowing notation freely from Izzat El Hajj.
+// Borowing ideas from Izzat El Hajj.
 // https://www.youtube.com/@ielhajj
-__global__ void
-multiply(float* A, float* B, float* C, int image_width){
 
-    __shared__ float TILE_A[TILE_WIDTH][TILE_WIDTH];
-    __shared__ float TILE_B[TILE_WIDTH][TILE_WIDTH];
+__global__ void
+mult(float* A, float* B, float* C, int N){
+    __shared__ float sTile_A[TILE_WIDTH][TILE_WIDTH];
+    __shared__ float sTile_B[TILE_WIDTH][TILE_WIDTH];
+
+    int tIdy = threadIdx.y; 
+    int tIdx  = threadIdx.x;
 
     int row = threadIdx.y + blockDim.y*blockIdx.y;
     int col = threadIdx.x + blockDim.x*blockIdx.x;
 
-    int tIdy = threadIdx.y;
-    int tIdx  = threadIdx.x;
+    float interVal = 0 ;
 
-    int bIdy  = blockIdx.y;
-    int bIdx  = blockIdx.x;
-
-
-    // for () how many passes do we need until we are done with one TILE going thorugh all dim
-    int TILE_SIZE = 16;
-    int intC = 0;
-    int steps = 4; // width   A = [x, 16*4] // B = [16x4,x]
-    for (int step = 0; step < 4; step+=TILE_SIZE){
-
-        TILE_A[threadIdx.x][threadIdx.y] = A[1];
-        TILE_B[threadIdx.x][threadIdx.y] = B[1];
-
+    for (int i= 0; i< N; i+= TILE_WIDTH){
+        sTile_A[tIdy][tIdx] = (row < N && tIdx+i < N) ? A[row*N + tIdx + i] : 0.0f;
+        sTile_B[tIdy][tIdx] = (col < N && tIdy+i < N) ? B[(tIdy+ i)*N + col] : 0.0f;
         __syncthreads();
 
-        for (int k=0; k < TILE_WIDTH; ++k){
-            intC += TILE_A[tIdy][k]*TILE_B[k][tIdx];
+        for (int k=0; k<TILE_WIDTH; ++k){
+            interVal += sTile_A[tIdy][k]*sTile_B[k][tIdx];
         }
         __syncthreads();
-
-        C[row*image_width+col] = intC;
     }
-    
 
+    if (row<N && col < N){
+        C[row*N + col] = interVal;
+    }
 }
 
 __global__ void

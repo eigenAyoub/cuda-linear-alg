@@ -10,6 +10,9 @@
 #include <random>
 #include <cmath>
 
+#include <iomanip>
+#include <sstream>
+
 //using namespace std::chrono
 
 namespace utils {
@@ -28,24 +31,35 @@ namespace utils {
         );
         return (status == 0) ? result.get() : type.name();
     }
-    
+
     class Timer {
         public:
             Timer(std::string name): _task_name(name) {
-                _start = std::chrono::system_clock::now();
+                _start = std::chrono::high_resolution_clock::now();
             }
-            ~Timer(){
-                std::chrono::system_clock::time_point end = std::chrono::system_clock::now();
-                auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end -_start).count();
-                std::cout << "Duration spent on " << _task_name << " is " << duration << "\n";
+
+            void report() {
+                auto end = std::chrono::high_resolution_clock::now();
+                auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - _start).count();
+
+                std::string formatted;
+                auto dur_str = std::to_string(duration);
+                int len = dur_str.length();
+                
+                for (int i = 0; i < len; i++) {
+                    formatted += dur_str[i];
+                    if (i < len - 1 && (len - i - 1) % 3 == 0) {
+                        formatted += '_';
+                    }
+                }
+
+                std::cout << _task_name << ": " << formatted << " μs" << std::endl;
             }
 
         private:
-            std::chrono::system_clock::time_point _start;
             std::string _task_name;
-
-
-    };
+            std::chrono::high_resolution_clock::time_point _start;
+        };
 
     void xavier_init(float* W, float *b, int input_dim, int output_dim) {
 
