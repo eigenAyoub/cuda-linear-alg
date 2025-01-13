@@ -1,6 +1,7 @@
 #include <cstdio>   // For printf
 #include <cstdlib>  // For rand, srand
 #include "utils.hpp"
+#include <cudnn.h>
 
 #define N 64
 #define TILE_WIDTH 16
@@ -20,8 +21,8 @@ mult(float* A, float* B, float* C){
     float interVal = 0 ;
 
     for (int i= 0; i< N; i+= TILE_WIDTH){
-        sTile_A[tIdy][tIdx] = (row < N && tIdx+i < N) ? A[row*N + tIdx + i] : 0.0f;
-        sTile_B[tIdy][tIdx] = (col < N && tIdy+i < N) ? B[(tIdy+ i)*N + col] : 0.0f;
+        sTile_A[tIdy][tIdx] = (row < N && tIdx+i < 784) ? A[row*N + tIdx + i] : 0.0f;
+        sTile_B[tIdy][tIdx] = (col < 784 && tIdy+i < N) ? B[(tIdy+ i)*N + col] : 0.0f;
         __syncthreads();
 
         for (int k=0; k<TILE_WIDTH; ++k){
@@ -48,6 +49,31 @@ void cpuMult(const float* A, const float* B, float* C, int n)
     }
 }
 
+
+void gpuSoftmax(float* data, int size) {
+    cudnnHandle_t cudnn;
+    cudnnCreate(&cudnn);
+
+    float *d_data;
+    cudaMalloc((void**)&d_data, size * sizeof(float));
+    cudaMemcpy(d_data, data, size * sizeof(float), cudaMemcpyHostToDevice);
+
+    cudnnTensorDescriptor_t data_desc;
+    cudnnCreateTensorDescriptor(&data_desc);
+    cudnnSetTensor4dDescriptor(data_desc, CUDNN_TENSOR_NCHW, CUDNN_DATA_FLOAT, 1, size, 1, 1);
+
+    float alpha = 1.0f, beta = 0.0f;
+    cudnnSoftmaxForward(cudnn, CUDNN_SOFTMAX_ACCURATE, CUDNN_SOFTMAX_MODE_CHANNEL, &alpha, data_desc, d_data, &beta, data_desc, d_data);
+
+    cudaMemcpy(data, d_data, size * sizeof(float), cudaMemcpyDeviceToHost);
+
+    cudaFree(d_data);
+    cudnnDestroyTensorDescriptor(data_desc);
+    cudnnDestroy(cudnn);
+}
+
+
+
 int main()
 {
     // 1. Allocate host arrays (float*)
@@ -62,6 +88,25 @@ int main()
         h_A[i] = static_cast<float>(rand() % 100) / 10.0f; // e.g. 0-9.9
         h_B[i] = static_cast<float>(rand() % 100) / 10.0f;
     }
+
+
+    Timer smx("Softmax using CuDNN took >");
+     // 3. Apply Softmax to h_A
+    gpuSoftmax(h_A, N * N);
+
+    smx.report();
+
+    // 4. Print results (optional - you might want to process the results further)
+    printf("Softmax Output (first 10 elements):\n");
+    for (int i = 0; i < 10; ++i) {
+        printf("%f ", h_A[i]);
+    }
+    printf("\n");
+
+    // 5. Cleanup
+    delete[] h_A;
+
+/*
 
     Timer t("CPU my ass");
     // 3. CPU reference multiplication
@@ -119,5 +164,6 @@ int main()
     cudaFree(d_B);
     cudaFree(d_C);
 
+*/
     return 0;
 }

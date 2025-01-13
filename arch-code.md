@@ -1,5 +1,4 @@
 
-```cpp
 int image_id = 27;
 std::cout << y_train[27] << "\n\n";
 for (int i=0; i < IMAGE_WIDTH; i++){
@@ -9,4 +8,3 @@ for (int i=0; i < IMAGE_WIDTH; i++){
     }
     std::cout << "\n";
 }
-    ```

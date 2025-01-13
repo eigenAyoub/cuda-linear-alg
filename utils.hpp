@@ -77,6 +77,24 @@ namespace utils {
             b[i] = 0.0f; 
         }
     }
+    
+    void cpuMult(const float* A, const float* B, float* C, int n)
+    {
+        for (int r = 0; r < n; ++r) {
+            for (int c = 0; c < n; ++c) {
+                float sum = 0.0f;
+                for (int k = 0; k < n; ++k) {
+                    sum += A[r * n + k] * B[k * n + c];
+                }
+                C[r * n + c] = sum;
+            }
+        }
+    }
+
+
+
+
+
 }
     // Usage:
     //xavier_init(W1_h, INPUT_DIM, HIDDEN_DIM);   
