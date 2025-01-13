@@ -13,17 +13,12 @@ const int NUM_IMAGES  = 60000;
 //const int IMAGE_WIDTH = 28;
 
 const int INPUT_DIM  = 784;
-const int HIDDEN_DIM = 10;
-//const int BATCH_SIZE = 1024;
-
-void verify_multiplication() {
-    // Setup test data
-}
+const int HIDDEN_DIM = 256;
+const int BATCH_SIZE = 64;
 
 // Call after GPU multiplication
 int main(){
     std::vector<float> X_train(NUM_IMAGES*IMAGE_SIZE), y_train(NUM_IMAGES);
-
     if (!read_mnist_data("data/train_mnist_images.bin",
                          "data/train_mnist_labels.bin",
                           X_train, 
@@ -34,55 +29,60 @@ int main(){
             return -1;
         }
 
-    float* X_train_d;
-    float* y_train_d;
+    // first batch //
 
-    std::cout << "Train size "  << X_train.size() << "\n";
-    std::cout << "Labels size " << y_train.size() << "\n";
-
-    cudaMalloc((void **) &X_train_d, sizeof(float)*X_train.size());
-    cudaMalloc((void **) &y_train_d, sizeof(float)*y_train.size());
-
-    cudaMemcpy(X_train_d, X_train.data(), X_train.size()*sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(y_train_d, y_train.data(), y_train.size()*sizeof(float), cudaMemcpyHostToDevice);
-
+    std::vector<float> X_batch(BATCH_SIZE * INPUT_DIM);  // Batch_size (y)  x INPUT_DIM (x) >> [64, 784]
+    std::copy(X_train.begin(), X_train.begin() + BATCH_SIZE * INPUT_DIM, X_batch.begin());
 
     std::vector<float> W1_h(INPUT_DIM*HIDDEN_DIM);
     std::vector<float> b1_h(HIDDEN_DIM);
-
     utils::xavier_init(W1_h.data(), b1_h.data(), INPUT_DIM, HIDDEN_DIM);
 
-
+    float* X_train_d;
+    //float* y_train_d;
     float * W1_d;
     float * b1_d;
     float * Y1_d;  // Y1_h = X @ W1_h   >> [B, 10] >> [64x10]
 
-    int BATCH_SIZE = 64;
 
+    cudaMalloc((void **) &X_train_d, sizeof(float)*X_batch.size());
+    //cudaMalloc((void **) &y_train_d, sizeof(float)*y_train.size());
     cudaMalloc((void **) &W1_d, sizeof(float)*W1_h.size());
     cudaMalloc((void **) &b1_d, sizeof(float)*b1_h.size());
     cudaMalloc((void **) &Y1_d, sizeof(float)*BATCH_SIZE*HIDDEN_DIM);
 
+    cudaMemcpy(X_train_d, X_batch.data(), X_batch.size()*sizeof(float), cudaMemcpyHostToDevice);
+    //cudaMemcpy(y_train_d, y_train.data(), y_train.size()*sizeof(float), cudaMemcpyHostToDevice);
     cudaMemcpy(W1_d, W1_h.data(), W1_h.size()*sizeof(float), cudaMemcpyHostToDevice);
     cudaMemcpy(b1_d, W1_h.data(), b1_h.size()*sizeof(float), cudaMemcpyHostToDevice);
+    
+    //std::vector<float> recover(BATCH_SIZE * HIDDEN_DIM, 0.0f);  // First batch only
+    //cudaMemcpy(recover.data(), W1_d, BATCH_SIZE * HIDDEN_DIM * sizeof(float), cudaMemcpyDeviceToHost);
+
+    //for(int i = 0; i < BATCH_SIZE; i++) {
+    //    std::cout << "Row " << i << ": ";
+    //    for(int j = 0; j < 28; j++) {
+    //        std::cout << std::fixed << std::setprecision(4) 
+    //                << W1_h[i * HIDDEN_DIM + j] << " >> "
+    //                << recover[i * HIDDEN_DIM + j] << "\n";
+    //    }
+    //    std::cout << "\n";
+    //}
 
     dim3 blockDim(16,16); // data is [64 x 784]
-    dim3 gridDim(49,4);
+    dim3 gridDim(16,4);
+
+    // x >> 16*16 = 256
+    // y >> 16*4 = 64 
 
     utils::Timer mxx("Matrix computation took");
-    mult<<<gridDim, blockDim>>>(X_train_d, W1_d, Y1_d, 64);
-
+    mult<<<gridDim, blockDim>>>(X_train_d, W1_d, Y1_d, 784, 256);
     mxx.report();
 
-
-    std::vector<float> X_batch(BATCH_SIZE * INPUT_DIM);  // First batch only
     std::vector<float> Y_cpu(BATCH_SIZE * HIDDEN_DIM, 0.0f);
     std::vector<float> Y_gpu(BATCH_SIZE * HIDDEN_DIM);
 
-    // Copy first batch from X_train
-    std::copy(X_train.begin(), 
-             X_train.begin() + BATCH_SIZE * INPUT_DIM, 
-             X_batch.begin());
+    cudaMemcpy(Y_gpu.data(), Y1_d, BATCH_SIZE * HIDDEN_DIM * sizeof(float), cudaMemcpyDeviceToHost);
 
     // CPU multiplication
     for(int i = 0; i < BATCH_SIZE; i++) {
@@ -96,21 +96,27 @@ int main(){
     }
 
     // Get GPU result
-    cudaMemcpy(Y_gpu.data(), W1_d, 
-               BATCH_SIZE * HIDDEN_DIM * sizeof(float), 
-               cudaMemcpyDeviceToHost);
-    // Print GPU matrix (64x10)
 
     std::cout << "First few elements comparison:\n";
-    for(int i = 0; i < 5; i++) {
-        std::cout << "CPU: " << Y_cpu[i] << " GPU: " << Y_gpu[i] 
-                  << " diff: " << std::abs(Y_cpu[i] - Y_gpu[i]) << "\n";
+    for(int i = 0; i < 64*2; i++) {
+        std::cout << "CPU: " << Y_cpu[i] << " GPU: " << Y_gpu[i] << "\n";
+//                  << " diff: " << std::abs(Y_cpu[i] - Y_gpu[i]) << "\n";
     }
+
+
 
     /**
      * 
      * 
 
+    for(int i = 0; i < BATCH_SIZE; i++) {
+        std::cout << "Row " << i << ": ";
+        for(int j = 0; j < HIDDEN_DIM; j++) {
+            std::cout << std::fixed << std::setprecision(4) 
+                    << X_train[i * HIDDEN_DIM + j] << " ";
+        }
+        std::cout << "\n";
+    }
     int N = 1000; 
     float* h_A     = new float[N*N];
 

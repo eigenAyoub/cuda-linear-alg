@@ -6,18 +6,19 @@
 #include <cudnn.h>
 #include "cuda_runtime.h"
 
-#define TILE_WIDTH 32  
-#define BATCH_SIZE 32
+#define TILE_y 16
+#define TILE_x 16
 
+//#define BATCH_SIZE 32
 // we would like the TILE_WIDTH to be the same as the block width.
 // so far we assume that the matrix is squared N x N
 
 
 
 __global__ void
-mult(float* A, float* B, float* C, int N){
-    __shared__ float sTile_A[TILE_WIDTH][TILE_WIDTH];
-    __shared__ float sTile_B[TILE_WIDTH][TILE_WIDTH];
+mult(float* A, float* B, float* C, int N, int M){
+    __shared__ float sTile_A[TILE_y][TILE_x];
+    __shared__ float sTile_B[TILE_x][TILE_y];
 
     int tIdy = threadIdx.y; 
     int tIdx  = threadIdx.x;
@@ -27,9 +28,11 @@ mult(float* A, float* B, float* C, int N){
 
     float interVal = 0 ;
 
-    for (int i= 0; i < 784; i+= TILE_WIDTH){
-        sTile_A[tIdy][tIdx] = (row < N && tIdx+i < 784) ? A[row*N + tIdx + i] : 0.0f;
-        sTile_B[tIdy][tIdx] = (col < 784 && tIdy+i < N) ? B[(tIdy+ i)*N + col] : 0.0f;
+    for (int i= 0; i < N; i+= TILE_WIDTH){
+        //sTile_A[tIdy][tIdx] = (row < N   && tIdx+i < 784) ? A[row*N + tIdx + i] : 0.0f;
+        //sTile_B[tIdy][tIdx] = (col < 784 && tIdy+i < N) ? B[(tIdy+ i)*N + col] : 0.0f;
+        sTile_A[tIdy][tIdx] = A[row*N + tIdx + i];
+        sTile_B[tIdy][tIdx] = B[(tIdy+ i)*M+ col];
         __syncthreads();
 
         for (int k=0; k<TILE_WIDTH; ++k){
@@ -38,7 +41,7 @@ mult(float* A, float* B, float* C, int N){
         __syncthreads();
     }
 
-    if (row<N && col < 784){
+    if (row< 64 && col < 256){
         C[row*N + col] = interVal;
     }
 }
