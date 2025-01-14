@@ -41,12 +41,12 @@ int main(){
 
     float* X_train_d;
     //float* y_train_d;
-    float * W1_d;
-    float * b1_d;
+    float* W1_d;
+    float* b1_d;
 
-    float * Y1_d;  // Y1_h = X @ W1_h   >> [B, 10] >> [64x10]
-    float * Z1_d;  // Z1_h = Y1_h + b1_h 
-
+    float* Y1_d;  // Y1_h = X @ W1_h   >> [B, 10] >> [64x10]
+    float* Z1_d;  // Z1_h = Y1_h + b1_h 
+    float* smx; // smx = softmax(Z1_h) ?? [B, 10]
 
     cudaMalloc((void **) &X_train_d, sizeof(float)*X_batch.size());
     //cudaMalloc((void **) &y_train_d, sizeof(float)*y_train.size());
@@ -54,6 +54,7 @@ int main(){
     cudaMalloc((void **) &b1_d, sizeof(float)*b1_h.size());
     cudaMalloc((void **) &Y1_d, sizeof(float)*BATCH_SIZE*HIDDEN_DIM);
     cudaMalloc((void **) &Z1_d, sizeof(float)*BATCH_SIZE*HIDDEN_DIM);
+    cudaMalloc((void **) &smx, sizeof(float)*BATCH_SIZE*HIDDEN_DIM);
 
     cudaMemcpy(X_train_d, X_batch.data(), X_batch.size()*sizeof(float), cudaMemcpyHostToDevice);
     //cudaMemcpy(y_train_d, y_train.data(), y_train.size()*sizeof(float), cudaMemcpyHostToDevice);
@@ -81,33 +82,54 @@ int main(){
     biasTime.report();
 
     // Z1_d =  x @ W +  b is ready  >> size:  [BATCH_SIZE x HIDDEN_DIM] (10)
-
-
      
     std::vector<float> Zback(BATCH_SIZE * HIDDEN_DIM);
     cudaMemcpy(Zback.data(), Z1_d, BATCH_SIZE * HIDDEN_DIM * sizeof(float), cudaMemcpyDeviceToHost);
 
 
-    float* data;
-    int size = 10;
+    std::vector<float> cudnnSmx(BATCH_SIZE*HIDDEN_DIM);  
 
-    cudnnHandle_t cudnn;
-    cudnnCreate(&cudnn);
+    for (int i = 0 ; i < 10; ++i){
+        for (int j = 0 ; j < HIDDEN_DIM; ++j){
+            std::cout << Zback[i*HIDDEN_DIM+j] << " ";
+        } 
+        std::cout << "\n";
+    }
 
-    float *cudnn_smx;
-    cudaMalloc((void**)&cudnn_smx, size * sizeof(float));
-    cudaMemcpy(cudnn_smx, Zback.data(), size * sizeof(float), cudaMemcpyHostToDevice);
-    cudnnTensorDescriptor_t data_desc;
+    std::copy(Zback.begin(), Zback.end(), cudnnSmx.begin());
 
-    cudnnCreateTensorDescriptor(&data_desc);
-    cudnnSetTensor4dDescriptor(data_desc, CUDNN_TENSOR_NCHW, CUDNN_DATA_FLOAT, 1, size, 1, 1);
-    float alpha = 1.0f, beta = 0.0f;
-    cudnnSoftmaxForward(cudnn, CUDNN_SOFTMAX_ACCURATE, CUDNN_SOFTMAX_MODE_CHANNEL, 
-    &alpha, data_desc, cudnn_smx, &beta, data_desc, cudnn_smx);
-    cudaMemcpy(data, cudnn_smx, size * sizeof(float), cudaMemcpyDeviceToHost);
-    cudaFree(cudnn_smx);
-    cudnnDestroyTensorDescriptor(data_desc);
-    cudnnDestroy(cudnn);
+    std::cout << "\n\n";
+    gpuSoftmax(cudnnSmx.data(), BATCH_SIZE, HIDDEN_DIM);
+
+    std::cout << "True cudnn softmax: \n";
+    for (int i = 0 ; i < 10; ++i){
+        for (int j = 0 ; j < HIDDEN_DIM; ++j){
+            std::cout << std::fixed << std::setprecision(4) <<
+             cudnnSmx[i*HIDDEN_DIM+j] << " ";
+        } 
+        std::cout << "\n";
+    }
+
+    utils::Timer smxx("\n Time to softmax it >  ");
+    softmax<<<gridDims1, blockDims1>>>(smx, Z1_d, HIDDEN_DIM);
+    cudaDeviceSynchronize();  
+    smxx.report();
+
+
+    std::vector<float> smxback(BATCH_SIZE * HIDDEN_DIM);
+    cudaMemcpy(smxback.data(), smx, BATCH_SIZE * HIDDEN_DIM * sizeof(float), cudaMemcpyDeviceToHost);
+
+
+    std::cout << "my softmaxyy \n\n" << "\n";
+    for (int i = 0 ; i < 10; ++i){
+        for (int j = 0 ; j < HIDDEN_DIM; ++j){
+            std::cout << std::fixed << std::setprecision(4) <<
+              smxback[i*HIDDEN_DIM+j] << " ";
+        } 
+        std::cout << "\n";
+    }
+
+
 
     return 0;
 }

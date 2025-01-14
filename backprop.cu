@@ -13,30 +13,41 @@
 // so far we assume that the matrix is squared N x N
 
 __global__ void
-softmax(float* A, float *Z, float* buffer){
+softmax(float* A, float *Z, int hidden_dim){
 
     int row = blockDim.y * blockIdx.y + threadIdx.y; 
     int col = blockDim.x * blockIdx.x + threadIdx.x; 
 
-    int tid = threadIdx.x + blockDim.x*threadIdx.y;
+    //int tid = threadIdx.x + blockDim.x*threadIdx.y;
 
-    float eZ = exp(Z[row*BATCH_SIZE+col]);
+    // you could use the same to do both.
+    __shared__ float buffPerBlock[32];
+    __shared__ int   max[32];
 
-    __shared__ float buffPerBlock[blockDim.y];
+    // catching the max per row
     if (threadIdx.x == 0) {
+        max[threadIdx.y] = 0;
         buffPerBlock[threadIdx.y] = 0.0f;
+        for (int i = 1; i < hidden_dim; i++){
+            if (Z[row*hidden_dim+i] > Z[row*hidden_dim + max[threadIdx.y]]) {
+                max[threadIdx.y] = i;
+            } 
+        }
     }
     __syncthreads();
 
-    buffPerBlock[threadIdx.y] += eZ;
-    __syncthreads(); 
 
-    //if (threadIdx.x == 0){
-    //    buffer[row] += buffPerBlock[threadIdx.y];
-    //}
-    //__syncthreads(); 
+    Z[row*hidden_dim+col] = exp(Z[row*hidden_dim+col] - Z[row*hidden_dim + max[threadIdx.y]]);
+    __syncthreads();
 
-    A[row*BATCH_SIZE+col] = eZ/buffer[row];
+    if (threadIdx.x == 0) {
+        for (int i =0; i < hidden_dim; i++){
+            buffPerBlock[threadIdx.y] += Z[row*hidden_dim+i];
+        }
+    }
+    __syncthreads();
+
+    A[row*hidden_dim+col] = Z[row*hidden_dim+col]/buffPerBlock[threadIdx.y];
 }
 
 __global__ void
@@ -248,25 +259,55 @@ bool read_mnist_data(
     return true;
 }
 
-void gpuSoftmax(float* data, int size) {
+
+void gpuSoftmax(float* data, int batch_size, int hidden_dim) {
+    // thanks Claude
+    // Create cuDNN handle
     cudnnHandle_t cudnn;
     cudnnCreate(&cudnn);
 
+    // Allocate device memory
     float *d_data;
-    cudaMalloc((void**)&d_data, size * sizeof(float));
-    cudaMemcpy(d_data, data, size * sizeof(float), cudaMemcpyHostToDevice);
+    size_t matrix_size = batch_size * hidden_dim * sizeof(float);
+    cudaMalloc((void**)&d_data, matrix_size);
+    cudaMemcpy(d_data, data, matrix_size, cudaMemcpyHostToDevice);
 
+    // Create tensor descriptor for batch_size x hidden_dim matrix
     cudnnTensorDescriptor_t data_desc;
     cudnnCreateTensorDescriptor(&data_desc);
-    cudnnSetTensor4dDescriptor(data_desc, CUDNN_TENSOR_NCHW, CUDNN_DATA_FLOAT, 1, size, 1, 1);
+    // NCHW: batch_size x hidden_dim x 1 x 1
+    cudnnSetTensor4dDescriptor(
+        data_desc,
+        CUDNN_TENSOR_NCHW,
+        CUDNN_DATA_FLOAT,
+        batch_size,    // N: number of images
+        hidden_dim,    // C: number of channels (features)
+        1,            // H: height
+        1             // W: width
+    );
 
+    // Perform softmax
     float alpha = 1.0f, beta = 0.0f;
-    cudnnSoftmaxForward(cudnn, CUDNN_SOFTMAX_ACCURATE, CUDNN_SOFTMAX_MODE_CHANNEL, &alpha, data_desc, d_data, &beta, data_desc, d_data);
+    cudnnSoftmaxForward(
+        cudnn,
+        CUDNN_SOFTMAX_ACCURATE,
+        CUDNN_SOFTMAX_MODE_CHANNEL,  // Softmax across hidden_dim
+        &alpha,
+        data_desc,
+        d_data,
+        &beta,
+        data_desc,
+        d_data
+    );
 
-    cudaMemcpy(data, d_data, size * sizeof(float), cudaMemcpyDeviceToHost);
+    // Copy result back
+    cudaMemcpy(data, d_data, matrix_size, cudaMemcpyDeviceToHost);
 
+    // Cleanup
     cudaFree(d_data);
     cudnnDestroyTensorDescriptor(data_desc);
     cudnnDestroy(cudnn);
 }
 
+// Usage:
+// gpuSoftmax(data, BATCH_SIZE, HIDDEN_DIM);

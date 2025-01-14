@@ -7,17 +7,17 @@
 ### Steps:
 
 
-First we implement this Minimal setting:
+First we implement this minimal forward setting:
 
 $$
 \begin{aligned}
-&Z_1 = \underbrace{XW_1}_{Y_1} + b_1 \\
-&A_1 = \text{softmax}(Z_1) \\
-&\mathcal{L} = \text{CrossEntropyLoss}(A_1, Y) \\
-&\mathcal{L} = \frac{1}{m} \sum_{i=1}^{m} -\log(A_{1\_i}[y_{\text{true}\_i}])
+&Z = \underbrace{XW_1}_{Y} + b_1 \\
+&A = \text{softmax}(Z) \\
+&\mathcal{L} = \text{CrossEntropyLoss}(A, Y_{\text{true}}) 
+= [-\log(A_{i}[y_{\text{true}_i}])]_{i=1}^{m} \\
+&\mathcal{l} = \frac{1}{m} \sum_{i=1}^{m} -\log(A_{i}[y_{\text{true}_i}])
 \end{aligned}
 $$
-
 
 ### TODO/PROGRESS:
 
@@ -41,3 +41,6 @@ The ultimate goal is to code something interesting, e.g., flash attention. If no
 
 * When adding bias, no need for share memory.
     * But it's cool, you've seen a case where `extern __shared__ ...` is used.
+
+
+### dElEtE this:
