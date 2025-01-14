@@ -9,7 +9,7 @@
 
 First we implement this minimal forward setting:
 
-$
+```math
 \begin{aligned}
 &Z = \underbrace{XW_1}_{Y} + b_1 \\
 &A = \text{softmax}(Z) \\
@@ -17,7 +17,7 @@ $
 = [-\log(A_{i}[y_{\text{true}_i}])]_{i=1}^{m} \\
 &\mathcal{l} = \frac{1}{m} \sum_{i=1}^{m} -\log(A_{i}[y_{\text{true}_i}])
 \end{aligned}
-$
+```
 
 ### TODO/PROGRESS:
 
