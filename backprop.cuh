@@ -8,7 +8,7 @@
 #define TILE_WIDTH 16
 
 // Kernel declarations
-__global__ void mult(float* A, float* B, float* C, int N, int M);  // Added dimension parameter
+__global__ void mult(float* A, float* B, float* C, int Ax, int cWidth, int By);
 __global__ void relu(float* A, float* Z, int B, int F);
 __global__ void rSoftmax(float* S, float* rS, int B);
 __global__ void softmax(float* A, float *Z, float* buffer);
