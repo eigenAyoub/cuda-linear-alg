@@ -12,7 +12,7 @@ SOURCES = forward.cu backprop.cu
 
 OBJECTS = $(SOURCES:.cu=.o)
 
-EXECUTABLE = softmax_example
+EXECUTABLE = out/softmax_example
 
 all: $(EXECUTABLE)
 

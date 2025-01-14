@@ -21,10 +21,11 @@ $$
 
 ### TODO/PROGRESS:
 
-- [ ] Forward pass, correctness:
-    - [x] tiled mult, with correctness
+- [ ] Forward pass, with correctness:
+    - [x] tiled mult
     - [ ] Softmax implementation
-    - [ ] Cross-entropy loss
+    - [ ] Cross-entropy loss (++ reduction pattern)
+
 - [ ] Backpropagation
 - [ ] Add one intermediate layer.
 - [ ] Optimize, Optimize, Optimize.
@@ -36,3 +37,7 @@ Few small trips:
 
 The ultimate goal is to code something interesting, e.g., flash attention. If not code then at least appreciate the intricacies of such high level implementations.
 
+### Some stuff:
+
+* When adding bias, no need for share memory.
+    * But it's cool, you've seen a case where `extern __shared__ ...` is used.

@@ -74,7 +74,8 @@ namespace utils {
         }
 
         for (int i = 0; i < output_dim; i++) {
-            b[i] = 0.0f; 
+            b[i] = i; 
+            //b[i] = 0.0f; 
         }
     }
     

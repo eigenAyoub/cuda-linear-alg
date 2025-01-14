@@ -1,6 +1,8 @@
 *.bin
 *.o
+*.out
 
 code-you-might-need.md
 
+.out/
 .vscode/

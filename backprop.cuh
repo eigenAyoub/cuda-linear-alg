@@ -7,6 +7,9 @@
 // Constants (if needed globally)
 #define TILE_WIDTH 16
 
+__global__ void shared_bias(float* Z, float* Y, float* b, int hidden_dim);
+__global__ void coalesced_bias(float* Z, float* Y, float* b, int hidden_dim);
+
 // Kernel declarations
 __global__ void mult(float* A, float* B, float* C, int Ax, int cWidth, int By);
 __global__ void relu(float* A, float* Z, int B, int F);
