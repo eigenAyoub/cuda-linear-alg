@@ -5,6 +5,7 @@
 #include <fstream>
 #include <cudnn.h>
 #include "cuda_runtime.h"
+//#include <math_constants.h>
 
 #define TILE_WIDTH 16
 #define BATCH_SIZE 64
@@ -18,13 +19,9 @@ softmax(float* A, float *Z, int hidden_dim){
     int row = blockDim.y * blockIdx.y + threadIdx.y; 
     int col = blockDim.x * blockIdx.x + threadIdx.x; 
 
-    //int tid = threadIdx.x + blockDim.x*threadIdx.y;
-
-    // you could use the same to do both.
     __shared__ float buffPerBlock[32];
     __shared__ int   max[32];
 
-    // catching the max per row
     if (threadIdx.x == 0) {
         max[threadIdx.y] = 0;
         buffPerBlock[threadIdx.y] = 0.0f;
@@ -47,7 +44,7 @@ softmax(float* A, float *Z, int hidden_dim){
     }
     __syncthreads();
 
-    A[row*hidden_dim+col] = Z[row*hidden_dim+col]/buffPerBlock[threadIdx.y];
+    A[row*hidden_dim+col] = -__logf(fmaxf(Z[row*hidden_dim+col]/buffPerBlock[threadIdx.y],1e-30f));
 }
 
 __global__ void
@@ -107,117 +104,51 @@ mult(float* A, float* B, float* C, int Ay, int cWidth, int Bx){ // cWidth as com
     }
 }
 
-/** 
-// Borowing ideas from Izzat El Hajj.
-// https://www.youtube.com/@ielhajj
+// next kernel should have as many threads as the BATCH_SIZE // and just 1D
+__global__ void
+logloss(float* L, float *A, float* y_train, int hidden_dim){
+    // A is assumed to be [BATCH_SIZE x N_CLASSES] // assumed to be the log softmax.
+    // L = [-log(loss)] // [BATCH_SIZE]
 
-const int IMAGE_WIDTH = 28;
-const int INPUT_DIM  = 784;
-const int OUTPUT_DIM = 10;
-const int HIDDEM_DIM = 10;
-
+    int row = threadIdx.x + blockDim.x*blockIdx.x;
+    if (row<BATCH_SIZE){
+        L[row] = A[row*hidden_dim+(int)y_train[row]];
+    }
+}
 
 __global__ void
-relu(float* A, float* Z, int B, int F){
-    // takes pre-activations Z
-    // computes the activation function  A = relu(Z)
-    // B: batch size
-    // F: Feature size 
-    int tIdx = blockIdx.x*blockDim.x + threadIdx.x ;
-    int tIdy = blockIdx.y*blockDim.y + threadIdx.y ;
-    if (tIdx< B && tIdy < F){
-        A[tIdx] = (Z[tIdx]>0) ? Z[tIdx] : 0;
+rLoss(float *l, float* L){
+    // L is of size Batch_size
+    int row = threadIdx.x + blockDim.x*blockIdx.x;
+
+    if (row == 0){
+        printf("from gpu, l = %f \n", l[0]);
+    }
+    __syncthreads();
+
+    for (int i = BATCH_SIZE/2; i > 0; i = i/2){
+        if (row < i) {
+            L[row] += L[row+i];
+        }
+    }
+    __syncthreads();
+
+    l[0] =  L[0];
+
+    if (row == 0){
+        printf("> after the sum > from gpu, l = %f \n", l[0]);
     }
     
 }
 
 __global__ void
-softmax(float* I, int *S, int width){
-    // should compute the logits 
+relu(float* A, float* Z, int hidden_dim){
+
+    int row = blockIdx.y*blockDim.y + threadIdx.y ;
+    int col = blockIdx.x*blockDim.x + threadIdx.x ;
+
+    A[row*hidden_dim+col]  = (Z[row*hidden_dim+col] > 0)? Z[0]:0;
 }
-
-__global__ void
-rSoftmax(float* S, int *Y, float* rS, int B){
-    // takes softmax logits S ~ [B,10]
-    // returns rS ~ [B] > for each sample S_i,  it select pred_i = S_i[true_y] 
-    // and return -log(pred_i)
-    int indx = blockIdx.x*blockDim.x + threadIdx.x ;
-
-    if (indx < BATCH_SIZE){
-        rS[indx] = -logf(S[Y[indx]]);
-    }
-}
-
-__global__ void
-reduced_sum(float* rS, float* loss, int B){
-    // implement the reduction loss pattern
-}
-
-__global__ void
-batch_multiply(
-                        float* A, 
-                        float* B, 
-                        float* C, 
-                        int batch_begin, 
-                        int batch_end, 
-                        int N
-                    ){
-
-    __shared__ float sTile_A[TILE_WIDTH][TILE_WIDTH];
-    __shared__ float sTile_B[TILE_WIDTH][TILE_WIDTH];
-
-    int tIdy = threadIdx.y; 
-    int tIdx  = threadIdx.x;
-
-    int row = threadIdx.y + blockDim.y*blockIdx.y;
-    int col = threadIdx.x + blockDim.x*blockIdx.x;
-
-    float interVal = 0 ;
-
-    for (int i= 0; i< N; i+= TILE_WIDTH){
-        sTile_A[tIdy][tIdx] = (row < N && tIdx+i < N) ? A[row*N + tIdx + i] : 0.0f;
-        sTile_B[tIdy][tIdx] = (col < N && tIdy+i < N) ? B[(tIdy+ i)*N + col] : 0.0f;
-        __syncthreads();
-
-        for (int k=0; k<TILE_WIDTH; ++k){
-            interVal += sTile_A[tIdy][k]*sTile_B[k][tIdx];
-        }
-        __syncthreads();
-    }
-
-    if (row<N && col < N){
-        C[row*N + col] = interVal;
-    }
-}
-
-
-
-__global__ void
-logloss(float* L, float *A, float* y_train, int batch_s, int batch_e){
-    // A is assumed to be [BATCH_SIZE x N_CLASSES]
-    // L = [-log(A_i)] // i is the true class  
-    // [batch_s, batch_e] begining and ending of the batch.
-    // I am assuming the block size here is exacly [BATCH_SIZE,1]
-    int tid = threadIdx.x;
-    int N = 10;
-    if ((batch_s+tid) < 600000 && tid < BATCH_SIZE){
-        int row = tid;
-        int col = static_cast<int>(y_train[batch_s+tid]);
-        L[tid] = -log(A[row*N+col])  ;
-    }
-}
-
-__global__ void
-rloss(float* loss_scalar, float *loss_vector){
-    // A is assumed to be [BATCH_SIZE x N_CLASSES]
-    // L = [-log(A_i)] // i is the true class  
-    // [batch_s, batch_e] begining and ending of the batch.
-    // I am assuming the block size here is exacly [BATCH_SIZE,1]
-
-}
-
-
-*/
 
 bool read_mnist_data(
     const std::string& images_path,
@@ -290,7 +221,7 @@ void gpuSoftmax(float* data, int batch_size, int hidden_dim) {
     float alpha = 1.0f, beta = 0.0f;
     cudnnSoftmaxForward(
         cudnn,
-        CUDNN_SOFTMAX_ACCURATE,
+        CUDNN_SOFTMAX_LOG,
         CUDNN_SOFTMAX_MODE_CHANNEL,  // Softmax across hidden_dim
         &alpha,
         data_desc,

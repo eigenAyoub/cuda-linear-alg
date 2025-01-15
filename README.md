@@ -3,9 +3,7 @@
     * Get used to CUDA with C++.
     * Use as much NVIDIA ecosystem as possible.
 
-
 ### Steps:
-
 
 First we implement this minimal forward setting:
 
@@ -21,15 +19,27 @@ First we implement this minimal forward setting:
 
 ### TODO/PROGRESS:
 
-- [ ] Forward pass, with correctness:
+- [x] Forward pass, with correctness:
     - [x] tiled mult
-    - [ ] Softmax implementation
-    - [ ] Cross-entropy loss (++ reduction pattern)
+    - [x] Numerically stable (log)-softmax implementation
+    - [x] Cross-entropy loss (++ reduction pattern)
+    - [x] Check correctness with cuDNN.
+
+- [ ] Optimize the forward pass:
+    - [ ] profile your code, know how to use nsight 
+    - [ ] use cuda primitives for math ops (any differences?)
+    - [ ] warp level primitives, is it even useful?
+    - [ ] high batch_size and profile your code. 
+    - [ ] compare / profile benchmark / have fun.
+    - [ ] play with compiler options, precisions. 
+    - [ ] ask Claude/o1 what's wrong with my code. 
 
 - [ ] Backpropagation
 - [ ] Add one intermediate layer.
+- [ ] use Adam
 - [ ] Optimize, Optimize, Optimize.
-- [ ] MLP to ...?
+
+- [ ] MLP to Att.. to flsh...?
 
 Few small trips:
 * Mini blog on softmax, compare to CuDNN.
@@ -37,10 +47,10 @@ Few small trips:
 
 The ultimate goal is to code something interesting, e.g., flash attention. If not code then at least appreciate the intricacies of such high level implementations.
 
-### Some stuff:
-
-* When adding bias, no need for share memory.
-    * But it's cool, you've seen a case where `extern __shared__ ...` is used.
-
-
 ### dElEtE this:
+* `extern __shared__ ...` is used.
+* warp level primitives?
+* check nvidia adds for keywords
+* read some papers, related to prime intellect.
+
+
