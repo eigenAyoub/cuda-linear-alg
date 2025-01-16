@@ -17,6 +17,12 @@ __global__ void logloss(float* L, float *A, float* y_train, int hidden_dim);
 __global__ void rLoss(float *l, float* L);
 __global__ void relu(float* A, float* Z, int hidden_dim);
 
+// backward funcitons, please change names afterwards.
+
+
+__global__ void dA(float* dA, float* A, float* y_true, int hidden_dim);
+
+
 // Host functions
 bool read_mnist_data(
     const std::string& images_path,

@@ -10,6 +10,36 @@
 #define TILE_WIDTH 16
 #define BATCH_SIZE 64
 
+// backprop stuff
+
+__global__ void 
+dA(float* dA, float* A, float* y_true, int hidden_dim) {
+
+    int row = threadIdx.y + blockDim.y*blockIdx.y;
+    int col = threadIdx.x + blockDim.x*blockIdx.x;
+    
+    if(row < BATCH_SIZE && col < hidden_dim) {
+        dA[row*hidden_dim + col] = (col == (int)y_true[row])? -1/(BATCH_SIZE*A[row*hidden_dim+col]):0.0f;  // Default value
+    }
+}
+
+
+
+__global__ void
+dZ(){
+
+}
+
+__global__ void
+dW(){
+
+}
+
+
+__global__ void
+db(){
+
+}
 // we would like the TILE_WIDTH to be the same as the block width.
 // so far we assume that the matrix is squared N x N
 
@@ -44,7 +74,20 @@ softmax(float* A, float *Z, int hidden_dim){
     }
     __syncthreads();
 
-    A[row*hidden_dim+col] = -__logf(fmaxf(Z[row*hidden_dim+col]/buffPerBlock[threadIdx.y],1e-30f));
+    //A[row*hidden_dim+col] = Z[row*hidden_dim+col]/buffPerBlock[threadIdx.y];
+    A[row*hidden_dim+col] = fmaxf(Z[row*hidden_dim+col]/buffPerBlock[threadIdx.y],1e-30f);
+}
+
+// next kernel should have as many threads as the BATCH_SIZE // and just 1D
+__global__ void
+logloss(float* L, float *A, float* y_train, int hidden_dim){
+    // A is assumed to be [BATCH_SIZE x N_CLASSES] // assumed to be the log softmax.
+    // L = [-log(loss)] // [BATCH_SIZE]
+
+    int row = threadIdx.x + blockDim.x*blockIdx.x;
+    if (row<BATCH_SIZE){
+        L[row] = -__logf(A[row*hidden_dim+(int)y_train[row]]);
+    }
 }
 
 __global__ void
@@ -104,17 +147,6 @@ mult(float* A, float* B, float* C, int Ay, int cWidth, int Bx){ // cWidth as com
     }
 }
 
-// next kernel should have as many threads as the BATCH_SIZE // and just 1D
-__global__ void
-logloss(float* L, float *A, float* y_train, int hidden_dim){
-    // A is assumed to be [BATCH_SIZE x N_CLASSES] // assumed to be the log softmax.
-    // L = [-log(loss)] // [BATCH_SIZE]
-
-    int row = threadIdx.x + blockDim.x*blockIdx.x;
-    if (row<BATCH_SIZE){
-        L[row] = A[row*hidden_dim+(int)y_train[row]];
-    }
-}
 
 __global__ void
 rLoss(float *l, float* L){
