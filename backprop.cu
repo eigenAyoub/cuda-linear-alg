@@ -23,21 +23,61 @@ dA(float* dA, float* A, float* y_true, int hidden_dim) {
     }
 }
 
-
-
 __global__ void
-dZ(){
+dZ(float* dZ, float* A, float* dA, float* dAAT, int hidden_dim){
+
+    int row = threadIdx.y + blockDim.y*blockIdx.y;
+    int col = threadIdx.x + blockDim.x*blockIdx.x;
+
+    dZ[row*hidden_dim+col] = A[row*hidden_dim+col] * (dA[row*hidden_dim+col] - dAAT[row]);
 
 }
 
 __global__ void
-dW(){
+mult_A_B_T(float* A, float* B, float* C, int Ay, int cWidth, int Bx){ 
 
+    // multiply A with B.T (B transpose)
+    // whenever we access B, we put the transpose there.
+
+    __shared__ float sTile_A[TILE_WIDTH][TILE_WIDTH];
+    __shared__ float sTile_B[TILE_WIDTH][TILE_WIDTH];
+
+    int tIdy = threadIdx.y; 
+    int tIdx  = threadIdx.x;
+
+    int row = threadIdx.y + blockDim.y*blockIdx.y;
+    int col = threadIdx.x + blockDim.x*blockIdx.x;
+
+    float interVal = 0 ;
+
+    for (int i= 0; i < cWidth; i+= TILE_WIDTH){
+        sTile_A[tIdy][tIdx] = (row < Ay && tIdx+i < cWidth) ? A[row*cWidth + tIdx + i] : 0.0f;
+        sTile_B[tIdy][tIdx] = (col < Bx && tIdy+i < cWidth) ? B[(tIdy+ i) + col*cWidth] : 0.0f;
+        __syncthreads();
+
+        for (int k=0; k<TILE_WIDTH; ++k){
+            interVal += sTile_A[tIdy][k]*sTile_B[k][tIdx];
+        }
+        __syncthreads();
+    }
+
+    if (row < Ay  && col < Bx){
+        C[row*Bx + col] = interVal;
+    }
 }
 
-
 __global__ void
-db(){
+db(float* db, float* dZ, int hidden_dim){
+    // use warm primities here:
+    // make hidden dim higher and compare.
+    // I only have 10 outputs.
+    int row =  threadIdx.x + blockDim.x*blockIdx.x;
+
+    int interVal  = 0.0f;
+    for (unsigned int i=0; i < hidden_dim; i++ ){
+        interVal += dZ[row*hidden_dim+i];
+    }
+    db[row] = interVal;
 
 }
 // we would like the TILE_WIDTH to be the same as the block width.
@@ -77,6 +117,45 @@ softmax(float* A, float *Z, int hidden_dim){
     //A[row*hidden_dim+col] = Z[row*hidden_dim+col]/buffPerBlock[threadIdx.y];
     A[row*hidden_dim+col] = fmaxf(Z[row*hidden_dim+col]/buffPerBlock[threadIdx.y],1e-30f);
 }
+
+
+__global__ void
+mult_A_T_B(float* A, float* B, float* C, int Ay, int cWidth, int Bx){ // cWidth as common width.
+
+    // multiply C = A.T @ B    (X^T @ dZ)    ([INPUT_DIM, BATCH_SIZE]@[BATCH_SIZE, HIDDEN_DIM])
+    // A stored in row-major order.
+    // so cWidth should be BATCH_SIZE
+    //    Ay               INPUT_DIM
+
+    // A is (Ay, Ax) (in our case, X.T @ dZ)
+
+    __shared__ float sTile_A[TILE_WIDTH][TILE_WIDTH];
+    __shared__ float sTile_B[TILE_WIDTH][TILE_WIDTH];
+
+    int tIdy = threadIdx.y; 
+    int tIdx  = threadIdx.x;
+
+    int row = threadIdx.y + blockDim.y*blockIdx.y;
+    int col = threadIdx.x + blockDim.x*blockIdx.x;
+
+    float interVal = 0 ;
+
+    for (int i= 0; i < cWidth; i+= TILE_WIDTH){
+        sTile_A[tIdy][tIdx] = (row < Ay && tIdx+i < cWidth) ? A[(tIdx + i)*Ay + row]: 0.0f;
+        sTile_B[tIdy][tIdx] = (col < Bx && tIdy+i < cWidth) ? B[(tIdy+ i)*Bx + col] : 0.0f;
+        __syncthreads();
+
+        for (int k=0; k<TILE_WIDTH; ++k){
+            interVal += sTile_A[tIdy][k]*sTile_B[k][tIdx];
+        }
+        __syncthreads();
+    }
+
+    if (row < Ay  && col < Bx){
+        C[row*Bx + col] = interVal;
+    }
+}
+
 
 // next kernel should have as many threads as the BATCH_SIZE // and just 1D
 __global__ void

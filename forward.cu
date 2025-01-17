@@ -105,11 +105,26 @@ int main(){
     // quick buffer for dA A^T
 
     float* dA_AT; // dA @ A.T
+
     cudaMalloc((void **) &dA_AT, sizeof(float)*BATCH_SIZE*HIDDEN_DIM);
 
-    // mult <<<>>> careful it's not the order we want now.
+    mult_A_B_T<<<4,16>>>(dA1_d, smx, dA_AT, BATCH_SIZE, HIDDEN_DIM, BATCH_SIZE);
+    dZ<<<2,32>>>(dZ1_d, smx, dA1_d, dA_AT, HIDDEN_DIM);
 
-    // dA =? A[row*hidden_unit+col] * (dA[row*hidden_unit+ col] - dA_AT[row] ) // done done 
+    dim3 blockDimsIn(10,32);   // for [BATCH_SIZE, HIDDEN_DIM]
+    dim3 gridDimsIn(1,ceil(INPUT_DIM/32));
+
+    std::cout << gridDimsIn.x << " " << gridDimsIn.y << "\n";
+
+    mult_A_T_B<<<blockDimsIn,gridDimsIn>>>(X_train_d, dZ1_d, dW1_d, INPUT_DIM, BATCH_SIZE, HIDDEN_DIM);
+    db<<<INPUT_DIM/64,64>>>(db1_d, dZ1_d, HIDDEN_DIM);
+
+    // updates:
+
+    
+    
+
+
 
 
     return 0;

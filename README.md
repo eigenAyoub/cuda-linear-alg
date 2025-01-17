@@ -32,7 +32,7 @@ For each sample \(i\) and class \(j\), we define
 ```
 
 ```math
-\boxed{dZ = A \odot \Bigl( dA - \, \operatorname{diag}(dA\, A^T)\,\mathbf{1}^T \Bigr)\,.}
+\boxed{dZ = A \odot \Bigl( dA - \, \text{diag}(dA\, A^T)\,\mathbf{1}^T \Bigr)\,.}
 ```
 ```math
 \boxed{dW = X^T dZ.}
@@ -67,7 +67,7 @@ For each sample \(i\) and class \(j\), we define
 
 - [ ] Optimize, Optimize, Optimize.
 
-- [ ] MLP to Att.. to flsh...?
+- [ ] MLP to MHA.. to flsh...?
 
 Few small trips:
 * Mini blog on softmax, compare to CuDNN.
@@ -76,20 +76,31 @@ Few small trips:
 The ultimate goal is to code something interesting, e.g., flash attention. If not code then at least appreciate the intricacies of such high level implementations.
 
 ### dElEtE this:
+
 * `extern __shared__ ...` is used.
 * warp level primitives?
 * check nvidia adds for keywords
 * read some papers, related to prime intellect.
 
+
 Jan 16:
 
-[ ] Better structure of the code.
-[ ] Backprop
-[ ] Reduction and histogram
-[ ] Nsight Compute.
+- [ ] Better structure of the code 
+    - [ ] add cuda error checks
+    - [ ] just remove the .cuh?
+    - [ ]  move every to src
 
-[ ] Cache misses?
-[ ] Warp-level primitives
-
-[ ] A way to automatically init a matrix to 0's in the DRAM, so we can only update the ones that need to change
+- [ ] Backprop correctness
+- [ ] Reduction and histogram
+- [ ] Nsight Compute.
+- [ ] Cache misses?
+- [ ] Warp-level primitives
+- [ ] Atomic level ops
+- [ ] A way to automatically init a matrix to 0's in the DRAM, so we can only update the ones that need to change
 Relevant for the logsoftmax loss backprop.
+
+```Cpp
+float* d_matrix;
+cudaMalloc((void**)&d_matrix, size * sizeof(float));
+cudaMemset(d_matrix, 0, size * sizeof(float));
+```

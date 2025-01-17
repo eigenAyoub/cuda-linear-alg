@@ -19,8 +19,12 @@ __global__ void relu(float* A, float* Z, int hidden_dim);
 
 // backward funcitons, please change names afterwards.
 
+__global__ void mult_A_B_T(float* A, float* B, float* C, int Ay, int cWidth, int Bx); // Bx should be Be rather B_Tx = By
+__global__ void mult_A_T_B(float* A, float* B, float* C, int Ay, int cWidth, int Bx); // cWidth as common width.
 
 __global__ void dA(float* dA, float* A, float* y_true, int hidden_dim);
+__global__ void dZ(float* dZ, float* A, float* dA, float* dAAT, int hidden_dim);
+__global__ void db(float* db, float* dZ, int hidden_dim);
 
 
 // Host functions
