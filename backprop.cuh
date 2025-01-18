@@ -26,6 +26,10 @@ __global__ void dA(float* dA, float* A, float* y_true, int hidden_dim);
 __global__ void dZ(float* dZ, float* A, float* dA, float* dAAT, int hidden_dim);
 __global__ void db(float* db, float* dZ, int hidden_dim);
 
+// upadtes:
+__global__ void update1D(float* W, float* dW, int x);
+__global__ void update2D(float* W, float* dW, int y, int x);
+
 
 // Host functions
 bool read_mnist_data(

@@ -12,14 +12,50 @@
 
 // backprop stuff
 
+
+__global__ void 
+update1D(float* W, float* dW, int x) {
+    int row = threadIdx.y + blockDim.y*blockIdx.y;
+    if (row<x){
+        W[row] = W[row] + 0.0001 * dW[row]; // how about that for an optmizer huh?
+    }
+}
+
+__global__ void 
+update2D(float* W, float* dW, int y, int x) {
+
+    int row = threadIdx.y + blockDim.y*blockIdx.y;
+    int col = threadIdx.x + blockDim.x*blockIdx.x;
+
+    if (row<x && col<y){
+        W[row*y + col] += 0.0001 * dW[row*y + col];
+    }
+}
+
 __global__ void 
 dA(float* dA, float* A, float* y_true, int hidden_dim) {
 
     int row = threadIdx.y + blockDim.y*blockIdx.y;
     int col = threadIdx.x + blockDim.x*blockIdx.x;
-    
+
     if(row < BATCH_SIZE && col < hidden_dim) {
-        dA[row*hidden_dim + col] = (col == (int)y_true[row])? -1/(BATCH_SIZE*A[row*hidden_dim+col]):0.0f;  // Default value
+        if (col == (int)y_true[row]){
+            float val = A[row*hidden_dim+col];
+
+            val = fmaxf(val, 1e-30f);  
+            
+            float grad = -1.0f/(BATCH_SIZE * val);
+            grad = fmaxf(grad, -1e30f);
+            grad = fminf(grad, -1e-30f);
+
+            if (row < 10){
+                printf("row %d col %d , %f \n", row, col, grad);
+            }
+
+            dA[row*hidden_dim + col] = grad;
+        } else {
+            dA[row*hidden_dim + col] = 0.0f ;  
+        }
     }
 }
 
@@ -29,15 +65,14 @@ dZ(float* dZ, float* A, float* dA, float* dAAT, int hidden_dim){
     int row = threadIdx.y + blockDim.y*blockIdx.y;
     int col = threadIdx.x + blockDim.x*blockIdx.x;
 
-    dZ[row*hidden_dim+col] = A[row*hidden_dim+col] * (dA[row*hidden_dim+col] - dAAT[row]);
+    if (row < BATCH_SIZE && col < hidden_dim){
+        dZ[row*hidden_dim+col] = A[row*hidden_dim+col] * (dA[row*hidden_dim+col] - dAAT[row*BATCH_SIZE+row]);
+    }
 
 }
 
 __global__ void
 mult_A_B_T(float* A, float* B, float* C, int Ay, int cWidth, int Bx){ 
-
-    // multiply A with B.T (B transpose)
-    // whenever we access B, we put the transpose there.
 
     __shared__ float sTile_A[TILE_WIDTH][TILE_WIDTH];
     __shared__ float sTile_B[TILE_WIDTH][TILE_WIDTH];
@@ -115,7 +150,8 @@ softmax(float* A, float *Z, int hidden_dim){
     __syncthreads();
 
     //A[row*hidden_dim+col] = Z[row*hidden_dim+col]/buffPerBlock[threadIdx.y];
-    A[row*hidden_dim+col] = fmaxf(Z[row*hidden_dim+col]/buffPerBlock[threadIdx.y],1e-30f);
+    //A[row*hidden_dim+col] = fmaxf(Z[row*hidden_dim+col]/buffPerBlock[threadIdx.y],1e-30f);
+    A[row*hidden_dim+col] = Z[row*hidden_dim+col]/buffPerBlock[threadIdx.y];
 }
 
 
@@ -165,7 +201,7 @@ logloss(float* L, float *A, float* y_train, int hidden_dim){
 
     int row = threadIdx.x + blockDim.x*blockIdx.x;
     if (row<BATCH_SIZE){
-        L[row] = -__logf(A[row*hidden_dim+(int)y_train[row]]);
+        L[row] = -__logf(fmaxf(A[row*hidden_dim+(int)y_train[row]], 1e-30f));
     }
 }
 
@@ -229,13 +265,8 @@ mult(float* A, float* B, float* C, int Ay, int cWidth, int Bx){ // cWidth as com
 
 __global__ void
 rLoss(float *l, float* L){
-    // L is of size Batch_size
-    int row = threadIdx.x + blockDim.x*blockIdx.x;
 
-    if (row == 0){
-        printf("from gpu, l = %f \n", l[0]);
-    }
-    __syncthreads();
+    int row = threadIdx.x + blockDim.x*blockIdx.x;
 
     for (int i = BATCH_SIZE/2; i > 0; i = i/2){
         if (row < i) {
@@ -244,12 +275,10 @@ rLoss(float *l, float* L){
     }
     __syncthreads();
 
-    l[0] =  L[0];
-
-    if (row == 0){
-        printf("> after the sum > from gpu, l = %f \n", l[0]);
+    if (row==0){
+        l[0] =  L[0]/BATCH_SIZE;
     }
-    
+
 }
 
 __global__ void

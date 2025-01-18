@@ -11,12 +11,9 @@
 \begin{aligned}
 &Z = \underbrace{XW_1}_{Y} + b_1 \\
 &A = \text{softmax}(Z) \\
-&\mathcal{L} = \text{CrossEntropyLoss}(A, Y_{\text{true}}) 
-= [-\log(A_{i}[y_{\text{true}_i}])]_{i=1}^{m} \\
-&\mathcal{l} = \frac{1}{m} \sum_{i=1}^{m} -\log(A_{i}[y_{\text{true}_i}])
+&\mathcal{l} = \frac{1}{m} \sum_{i=1}^{m} -\log(A_{i}[y_i])
 \end{aligned}
 ```
-For each sample \(i\) and class \(j\), we define
 
 
 
@@ -50,7 +47,10 @@ For each sample \(i\) and class \(j\), we define
     - [x] Check correctness with cuDNN.
 
 
-- [X] Derive Backpropagation with your hands (I messed up the softmax for so long :/).
+- [ ] Backprop 
+    - [x] Derive Backpropagation with your hands (I messed up the softmax for so long :/).
+    - [x] Implement the derivations 
+    - [ ] Verify with CPU code (just use o1 code) 
 
 - [ ] Optimize the forward pass (later):
     - [ ] profile your code, know how to use nsight 
@@ -77,7 +77,6 @@ The ultimate goal is to code something interesting, e.g., flash attention. If no
 
 ### dElEtE this:
 
-* `extern __shared__ ...` is used.
 * warp level primitives?
 * check nvidia adds for keywords
 * read some papers, related to prime intellect.
@@ -96,11 +95,38 @@ Jan 16:
 - [ ] Cache misses?
 - [ ] Warp-level primitives
 - [ ] Atomic level ops
-- [ ] A way to automatically init a matrix to 0's in the DRAM, so we can only update the ones that need to change
 Relevant for the logsoftmax loss backprop.
+* `extern __shared__ ...` is used.
+### Take this somewhere else:
+
+* Dyn use of shared mem > `extern __shared__ ...`.
+
+- A way to zero-init a matrix in the DRAM (so we can only update the ones that need to change)
 
 ```Cpp
 float* d_matrix;
 cudaMalloc((void**)&d_matrix, size * sizeof(float));
 cudaMemset(d_matrix, 0, size * sizeof(float));
+```
+- when to use `cudaDeviceSynchronize();`, and when not to
+
+
+- where to use cuda events / cuda streams? 
+
+```Cpp
+cudaStreamCreate(&stream);
+mult<<<gridDim, blockDim, 0, stream>>>(/*...*/);
+coalesced_bias<<<gridDims1, blockDims1, 0, stream>>>(/*...*/);
+```
+
+Instead of using `cudaDeviceSynchronize();`
+
+
+* Quick thing regarding `cuDNN`, smth went off when my image was rest.
+
+```bash
+> wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-keyring_1.1-1_all.deb
+> rm /etc/apt/sources.list.d/cuda.list
+> apt-get update
+> apt-get -y install cudnn9-cuda-12
 ```

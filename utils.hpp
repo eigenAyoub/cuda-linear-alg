@@ -65,8 +65,8 @@ namespace utils {
 
         float scale = sqrt(6.0f / (input_dim + output_dim));
         
-        std::random_device rd;
-        std::mt19937 gen(rd());
+        //std::random_device rd;
+        std::mt19937 gen(17);
         std::uniform_real_distribution<float> dis(-scale, scale);
         
         for (int i = 0; i < input_dim * output_dim; i++) {
@@ -74,8 +74,7 @@ namespace utils {
         }
 
         for (int i = 0; i < output_dim; i++) {
-            b[i] = i; 
-            //b[i] = 0.0f; 
+            b[i] = 0.0f; 
         }
     }
     
