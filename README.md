@@ -16,12 +16,9 @@
 ```
 
 
-
-
 2. Backprop:
 
-* As always, we super abuse notation, and simply refer to `dl/dW` as `dW` (maybe add better notation later on, include dims in decl, etc.)
-* Assume we have `dA`, then we get the following:
+* As always, we super abuse notation, and simply refer to `dl/dW` as `dW` (maybe add better notation later on, include dims in decl, etc.). We get the following:
 
 
 ```math
@@ -38,6 +35,12 @@
 \boxed{db = \mathbf{1}^T dZ}
 ```
 
+* In our case, y is one-hot-encoded, `dZ` simplifies as follows:
+
+```math
+dZ_{ij} = \frac{1}{m}(A_{ij} - \mathbf{1}\{j = y_i\})
+```
+
 ### TODO/PROGRESS:
 
 - [x] Forward pass, with correctness:
@@ -47,12 +50,12 @@
     - [x] Check correctness with cuDNN.
 
 
-- [ ] Backprop 
+- [x] Backprop 
     - [x] Derive Backpropagation with your hands (I messed up the softmax for so long :/).
     - [x] Implement the derivations 
-    - [ ] Verify with CPU code (just use o1 code) 
+    - [x] Verify with CPU code (just use o1 code) 
 
-- [ ] Optimize the forward pass (later):
+- [ ] Optimize the forward pass ():
     - [ ] profile your code, know how to use nsight 
     - [ ] use cuda primitives for math ops (any differences?)
     - [ ] warp level primitives, is it even useful?
@@ -62,15 +65,13 @@
     - [ ] ask Claude/o1 what's wrong with my code. 
 
 - [ ] Improve training:
+    - [ ] systematic way to transfer weights accross between pytorch and C++.
     - [ ] use Adam?
     - [ ] more layers, etc.
-
-- [ ] Optimize, Optimize, Optimize.
 
 - [ ] MLP to MHA.. to flsh...?
 
 Few small trips:
-* Mini blog on softmax, compare to CuDNN.
 * Profile your code, use NVIDIA NSIGHTs.
 
 The ultimate goal is to code something interesting, e.g., flash attention. If not code then at least appreciate the intricacies of such high level implementations.
@@ -78,29 +79,25 @@ The ultimate goal is to code something interesting, e.g., flash attention. If no
 ### dElEtE this:
 
 * warp level primitives?
-* check nvidia adds for keywords
 * read some papers, related to prime intellect.
 
-
-Jan 16:
+Jan 20:
 
 - [ ] Better structure of the code 
     - [ ] add cuda error checks
     - [ ] just remove the .cuh?
-    - [ ]  move every to src
+    - [ ] move every to src
 
-- [ ] Backprop correctness
+- [x] Backprop correctness
 - [ ] Reduction and histogram
 - [ ] Nsight Compute.
 - [ ] Cache misses?
 - [ ] Warp-level primitives
 - [ ] Atomic level ops
-Relevant for the logsoftmax loss backprop.
-* `extern __shared__ ...` is used.
+
 ### Take this somewhere else:
 
-* Dyn use of shared mem > `extern __shared__ ...`.
-
+- Dyn use of shared mem > `extern __shared__ ...`.
 - A way to zero-init a matrix in the DRAM (so we can only update the ones that need to change)
 
 ```Cpp
@@ -109,8 +106,6 @@ cudaMalloc((void**)&d_matrix, size * sizeof(float));
 cudaMemset(d_matrix, 0, size * sizeof(float));
 ```
 - when to use `cudaDeviceSynchronize();`, and when not to
-
-
 - where to use cuda events / cuda streams? 
 
 ```Cpp
@@ -122,7 +117,7 @@ coalesced_bias<<<gridDims1, blockDims1, 0, stream>>>(/*...*/);
 Instead of using `cudaDeviceSynchronize();`
 
 
-* Quick thing regarding `cuDNN`, smth went off when my image was rest.
+* Quick thing regarding `cuDNN`, smth went off when compute pod and my image was rest.
 
 ```bash
 > wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-keyring_1.1-1_all.deb

@@ -32,41 +32,20 @@ update2D(float* W, float* dW, int y, int x) {
     }
 }
 
-__global__ void 
-dA(float* dA, float* A, float* y_true, int hidden_dim) {
-
-    int row = threadIdx.y + blockDim.y*blockIdx.y;
-    int col = threadIdx.x + blockDim.x*blockIdx.x;
-
-    if(row < BATCH_SIZE && col < hidden_dim) {
-        if (col == (int)y_true[row]){
-            float val = A[row*hidden_dim+col];
-
-            val = fmaxf(val, 1e-30f);  
-            
-            float grad = -1.0f/(BATCH_SIZE * val);
-            grad = fmaxf(grad, -1e30f);
-            grad = fminf(grad, -1e-30f);
-
-            if (row < 10){
-                printf("row %d col %d , %f \n", row, col, grad);
-            }
-
-            dA[row*hidden_dim + col] = grad;
-        } else {
-            dA[row*hidden_dim + col] = 0.0f ;  
-        }
-    }
-}
 
 __global__ void
-dZ(float* dZ, float* A, float* dA, float* dAAT, int hidden_dim){
+dZ(float* dZ, float* A, float* y_true, int hidden_dim){
 
     int row = threadIdx.y + blockDim.y*blockIdx.y;
     int col = threadIdx.x + blockDim.x*blockIdx.x;
 
+    float update = A[row*hidden_dim+col];
+
     if (row < BATCH_SIZE && col < hidden_dim){
-        dZ[row*hidden_dim+col] = A[row*hidden_dim+col] * (dA[row*hidden_dim+col] - dAAT[row*BATCH_SIZE+row]);
+        if (col == static_cast<int>(y_true[row])){
+            update -= 1.f;
+        } 
+        dZ[row*hidden_dim+col] = update / BATCH_SIZE;
     }
 
 }
@@ -106,14 +85,18 @@ db(float* db, float* dZ, int hidden_dim){
     // use warm primities here:
     // make hidden dim higher and compare.
     // I only have 10 outputs.
-    int row =  threadIdx.x + blockDim.x*blockIdx.x;
+    int row =  threadIdx.x + blockDim.x*blockIdx.x;  // row over Hidden dim 
 
-    int interVal  = 0.0f;
-    for (unsigned int i=0; i < hidden_dim; i++ ){
-        interVal += dZ[row*hidden_dim+i];
+    float interVal  = 0.0f;
+    for (unsigned int i=0; i < BATCH_SIZE; i++ ){
+        interVal += dZ[i*hidden_dim+row];
+        if (row == 0){
+            if (i < 5){
+                printf("row %d, %d = %f, %f\n\n", row, i, dZ[i*hidden_dim+row], interVal);
+            }
+        }
     }
     db[row] = interVal;
-
 }
 // we would like the TILE_WIDTH to be the same as the block width.
 // so far we assume that the matrix is squared N x N
@@ -177,12 +160,24 @@ mult_A_T_B(float* A, float* B, float* C, int Ay, int cWidth, int Bx){ // cWidth 
     float interVal = 0 ;
 
     for (int i= 0; i < cWidth; i+= TILE_WIDTH){
-        sTile_A[tIdy][tIdx] = (row < Ay && tIdx+i < cWidth) ? A[(tIdx + i)*Ay + row]: 0.0f;
-        sTile_B[tIdy][tIdx] = (col < Bx && tIdy+i < cWidth) ? B[(tIdy+ i)*Bx + col] : 0.0f;
+        //Tile_A[tIdy][tIdx] = (row < Ay && tIdx+i < cWidth) ? A[row*cWidth + tIdx + i] : 0.0f;
+        if (row < Ay && tIdx+i < cWidth){
+            sTile_A[tIdy][tIdx] = A[(tIdx + i)*Ay+ row];
+        } else {
+            sTile_A[tIdy][tIdx] = 0.0f;
+        }
+        if (col < Bx && tIdy+i < cWidth){
+            sTile_B[tIdy][tIdx] = B[(tIdy+ i)*Bx + col];
+        } else {
+            sTile_B[tIdy][tIdx] = 0.0f;
+        }
+
         __syncthreads();
 
-        for (int k=0; k<TILE_WIDTH; ++k){
-            interVal += sTile_A[tIdy][k]*sTile_B[k][tIdx];
+        if (col < Bx){
+            for (int k=0; k<TILE_WIDTH; ++k){
+                interVal += sTile_A[tIdy][k]*sTile_B[k][tIdx];
+            }
         }
         __syncthreads();
     }

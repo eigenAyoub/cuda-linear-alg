@@ -113,6 +113,7 @@ void backward_cpu(
     }
 
 
+
     // 2) dW = X^T * dZ
     //    shape => [inDim, outDim]
     std::fill(dW.begin(), dW.end(), 0.f);
@@ -126,6 +127,15 @@ void backward_cpu(
         }
     }
 
+    std::cout <<"\n dw\n"; // W1 is input_dim x hidden_dim
+    for (int i=0; i < inDim; i++){
+        for (int j=0; j < outDim; j++){
+            std::cout << dW[i*outDim+j] << " ";
+            
+        }
+        std::cout << "\n";
+    }
+    std::cout <<"dw-DONE \n"; // W1 is input_dim x hidden_dim
 
 
     // 3) db = sum(dZ) along batch => shape [outDim]
@@ -138,22 +148,12 @@ void backward_cpu(
         db[j] = sumVal;
     }
 
-    std::cout <<"\n dW\n"; // W1 is input_dim x hidden_dim
-    for (int i=0; i < 30; i++){
-        for (int j=0; j < 10; j++){
-            std::cout << dW[i*BATCH_SIZE+j] << " ";
-        }
-        std::cout << "\n";
-    }
-    std::cout <<"dW-DONE \n"; // W1 is input_dim x hidden_dim
 
     std::cout <<"\n db\n"; // W1 is input_dim x hidden_dim
-    for (int i=0; i < 1; i++){
-        for (int j=0; j < 4; j++){
-            std::cout << db[j] << " ";
-        }
-        std::cout << "\n";
+    for (int j=0; j < 10; j++){
+        std::cout << db[j] << " ";
     }
+    std::cout << "\n";
     std::cout <<"db-DONE \n"; // W1 is input_dim x hidden_dim
 
     // 4) update in-place

@@ -17,24 +17,14 @@ const int HIDDEN_DIM = 10;
 const int BATCH_SIZE = 64;
 
 void back(int d1, int d2, float* dev_var, std::string vName){
-    int d11 = 0;
-    int d22 = 0;
 
-    if (d1 > 30){
-        d11 = 30;
-    }
-    if (d2 > 10){
-        d22 = 10;
-    }
+
     std::vector<float> vBack(d1*d2);
     cudaMemcpy(vBack.data(), dev_var, sizeof(float)*d1*d2, cudaMemcpyDeviceToHost);
 
-    std::cout << << i*d2+j << " ";
-
-    std::cout << "\nVisual of input " << vName << "\n\n";
-    for (int i=0; i < d11; i++){
-        for (int j=0; j < d22; j++){
-            std::cout << i*d2+j << " ";
+    std::cout << "\nVisual of input " << vName << "\n";
+    for (int i=0; i < d1; i++){
+        for (int j=0; j < d2; j++){
             std::cout << vBack[i*d2+j] << " ";
         }
         std::cout <<"\n";
@@ -65,17 +55,7 @@ int main(){
     std::vector<float> b1_h(HIDDEN_DIM);
     utils::xavier_init(W1_h.data(), b1_h.data(), INPUT_DIM, HIDDEN_DIM);
 
-
-    std::cout << "w1_h  before \n";
-    for (int i=0; i < 10; i++){
-        for (int j=0; j < 5; j++){
-            std::cout << W1_h[i*HIDDEN_DIM+j] << " ";
-        }
-        std::cout << "\n";
-    }
-
-    float* X_train_d;
-    float* y_train_d;
+    float *X_train_d, *y_train_d;
 
     //forward stuff
     float* W1_d;
@@ -149,34 +129,22 @@ int main(){
     cudaDeviceSynchronize();
 
     //// backward starts here: 
-    back(BATCH_SIZE, HIDDEN_DIM, smx, "dZ");
 
-    dA<<<gridDims1, blockDims1>>>(dA1_d, smx, y_train_d, HIDDEN_DIM);
+
+    dZ<<<gridDims1,blockDims1>>>(dZ1_d, smx, y_train_d, HIDDEN_DIM);
     cudaDeviceSynchronize();
 
+    dim3 blockDimf(16,16);     // for [BATCH_SIZE, INPUT_DIM]
+    dim3 gridDimf(1,49);
 
-    //// quick buffer for dA A^T
-    dim3 blockDim44(16,16);     // for [BATCH_SIZE, INPUT_DIM]
-    dim3 gridDim44(4,4);
-    float* dA_AT; // dA @ A.T
-    cudaMalloc((void **) &dA_AT, sizeof(float)*BATCH_SIZE*BATCH_SIZE);
-    mult_A_B_T<<<gridDim44,blockDim44>>>(dA1_d, smx, dA_AT, BATCH_SIZE, HIDDEN_DIM, BATCH_SIZE);
+    mult_A_T_B<<<gridDimf, blockDimf>>>(X_train_d, dZ1_d, dW1_d, INPUT_DIM, BATCH_SIZE, HIDDEN_DIM);
     cudaDeviceSynchronize();
 
+    back(INPUT_DIM, HIDDEN_DIM, dW1_d, "dW1");
 
-
-    dZ<<<gridDims1,blockDims1>>>(dZ1_d, smx, dA1_d, dA_AT, HIDDEN_DIM);
+    db<<<1,HIDDEN_DIM>>>(db1_d, dZ1_d, HIDDEN_DIM);
     cudaDeviceSynchronize();
 
-
-    mult_A_T_B<<<blockDimsIn,gridDimsIn>>>(X_train_d, dZ1_d, dW1_d, INPUT_DIM, BATCH_SIZE, HIDDEN_DIM);
-    cudaDeviceSynchronize();
-
-
-    db<<<HIDDEN_DIM/64,64>>>(db1_d, dZ1_d, HIDDEN_DIM);
-    cudaDeviceSynchronize();
-
-    //back(INPUT_DIM, HIDDEN_DIM, dW1_d, "dW1");
     back(1, HIDDEN_DIM, db1_d, "db1");
 
 
