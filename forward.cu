@@ -22,7 +22,9 @@ void back(int d1, int d2, float* dev_var, std::string vName){
     std::vector<float> vBack(d1*d2);
     cudaMemcpy(vBack.data(), dev_var, sizeof(float)*d1*d2, cudaMemcpyDeviceToHost);
 
-    std::cout << "\nVisual of input " << vName << "\n";
+    int x  = min(d1, 100);
+
+    std::cout << "\n" << vName << " : \n";
     for (int i=0; i < d1; i++){
         for (int j=0; j < d2; j++){
             std::cout << vBack[i*d2+j] << " ";
@@ -31,6 +33,23 @@ void back(int d1, int d2, float* dev_var, std::string vName){
     }
 }
 
+#define CHECK_CUDA(call) { \
+    cudaError_t err = call; \
+    if (err != cudaSuccess) { \
+        printf("CUDA error %s:%d: %s\n", __FILE__, __LINE__, \
+               cudaGetErrorString(err)); \
+        exit(EXIT_FAILURE); \
+    } \
+}
+
+#define CHECK_KERNEL() { \
+    cudaError_t err = cudaGetLastError(); \
+    if (err != cudaSuccess) { \
+        printf("Kernel error %s:%d: %s\n", __FILE__, __LINE__, \
+               cudaGetErrorString(err)); \
+        exit(EXIT_FAILURE); \
+    } \
+}
 int main(){
     std::vector<float> X_train(NUM_IMAGES*IMAGE_SIZE), y_train(NUM_IMAGES);
 
@@ -69,6 +88,7 @@ int main(){
     cudaMalloc((void **) &X_train_d, sizeof(float)*X_batch.size());
     cudaMalloc((void **) &y_train_d, sizeof(float)*y_batch.size());
 
+
     cudaMalloc((void **) &W1_d, sizeof(float)*W1_h.size());
     cudaMalloc((void **) &b1_d, sizeof(float)*b1_h.size());
     cudaMalloc((void **) &Y1_d, sizeof(float)*BATCH_SIZE*HIDDEN_DIM);
@@ -77,8 +97,6 @@ int main(){
     cudaMalloc((void **) &L, sizeof(float)*BATCH_SIZE);
     cudaMalloc((void **) &l, sizeof(float));
 
-    cudaMemcpy(X_train_d, X_batch.data(), X_batch.size()*sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(y_train_d, y_batch.data(), y_batch.size()*sizeof(float), cudaMemcpyHostToDevice);
     cudaMemcpy(W1_d, W1_h.data(), W1_h.size()*sizeof(float), cudaMemcpyHostToDevice);
     cudaMemcpy(b1_d, b1_h.data(), b1_h.size()*sizeof(float), cudaMemcpyHostToDevice);
 
@@ -96,73 +114,73 @@ int main(){
     cudaMalloc((void **) &dA1_d, sizeof(float)*BATCH_SIZE*HIDDEN_DIM);
 
     dim3 blockDim(16,16);     // for [BATCH_SIZE, INPUT_DIM]
-    dim3 gridDim(16,BATCH_SIZE/blockDim.y);
+    dim3 gridDim(1,4);
 
     dim3 blockDims1(10,32);   // for [BATCH_SIZE, HIDDEN_DIM]
     dim3 gridDims1(1,2);
 
 
-    //dim3 blockDim1D(1,32);    // for operations that operate on a long line ([BATCH_SIZE,1])
-    //dim3 gridDim1D(1,2);
-
-    dim3 blockDimsIn(10,32);   // for [BATCH_SIZE, HIDDEN_DIM]
-    dim3 gridDimsIn(1,ceil(INPUT_DIM/32));
-
-    //dim3 blockDimsW(10,16);   // for [BATCH_SIZE, HIDDEN_DIM]
-    //dim3 gridDimsW(1,49);
-
-    // forward pass
-    mult<<<gridDim, blockDim>>>(X_train_d, W1_d, Y1_d, BATCH_SIZE, INPUT_DIM, HIDDEN_DIM);
-    cudaDeviceSynchronize();
-
-    coalesced_bias<<<gridDims1, blockDims1>>>(Z1_d, Y1_d, b1_d, HIDDEN_DIM);
-    cudaDeviceSynchronize();
-
-    softmax<<<gridDims1, blockDims1>>>(smx, Z1_d, HIDDEN_DIM); //  this is acually softmax; not anymore
-    cudaDeviceSynchronize();
-
-    logloss<<<2, 32>>>(L, smx, y_train_d, HIDDEN_DIM);  // we just pick the true label // L is [BATCH_SIZE,1]
-    cudaDeviceSynchronize();
-
-
-    rLoss<<<2, 32>>>(l, L);
-    cudaDeviceSynchronize();
-
-    //// backward starts here: 
-
-
-    dZ<<<gridDims1,blockDims1>>>(dZ1_d, smx, y_train_d, HIDDEN_DIM);
-    cudaDeviceSynchronize();
-
-    dim3 blockDimf(16,16);     // for [BATCH_SIZE, INPUT_DIM]
+    dim3 blockDimf(10,16);     // for [BATCH_SIZE, INPUT_DIM]
     dim3 gridDimf(1,49);
 
-    mult_A_T_B<<<gridDimf, blockDimf>>>(X_train_d, dZ1_d, dW1_d, INPUT_DIM, BATCH_SIZE, HIDDEN_DIM);
-    cudaDeviceSynchronize();
+    dim3 blockDimW(16,16);     // for [BATCH_SIZE, INPUT_DIM]
+    dim3 gridDimW(1,49);
 
-    back(INPUT_DIM, HIDDEN_DIM, dW1_d, "dW1");
+    for (unsigned int batch = 0 ; batch < 10; batch++){
 
-    db<<<1,HIDDEN_DIM>>>(db1_d, dZ1_d, HIDDEN_DIM);
-    cudaDeviceSynchronize();
+        CHECK_CUDA(cudaMemcpy(X_train_d, X_train.data()+batch*BATCH_SIZE*INPUT_DIM, X_batch.size()*sizeof(float), cudaMemcpyHostToDevice));
+        CHECK_CUDA(cudaMemcpy(y_train_d, y_train.data()+batch*BATCH_SIZE, y_batch.size()*sizeof(float), cudaMemcpyHostToDevice));
 
-    back(1, HIDDEN_DIM, db1_d, "db1");
+        // forward pass
+        mult<<<gridDim, blockDim>>>(X_train_d, W1_d, Y1_d, BATCH_SIZE, INPUT_DIM, HIDDEN_DIM);
+        CHECK_KERNEL();
+        CHECK_CUDA(cudaDeviceSynchronize());
 
 
-    // updates:
-    //update1D<<<1,1>>>(b1_d, db1_d, HIDDEN_DIM);
-    //update2D<<<gridDimsW,blockDimsW>>>(W1_d, dW1_d, INPUT_DIM, HIDDEN_DIM);
+        coalesced_bias<<<gridDims1, blockDims1>>>(Z1_d, Y1_d, b1_d, HIDDEN_DIM);
+        CHECK_KERNEL();
+        CHECK_CUDA(cudaDeviceSynchronize());
 
-    //std::vector<float> w1Back(W1_h.size());
-    //cudaMemcpy(w1Back.data(), W1_d, sizeof(float)*W1_h.size(), cudaMemcpyDeviceToHost);
+        softmax<<<gridDims1, blockDims1>>>(smx, Z1_d, HIDDEN_DIM); //  this is acually softmax; not anymore
+        CHECK_KERNEL();
+        CHECK_CUDA(cudaDeviceSynchronize());
 
-    //std::cout <<"dw1 after the update \n"; // W1 is input_dim x hidden_dim
-    //for (int i=0; i < 10; i++){
-    //    for (int j=0; j < 5; j++){
-    //        std::cout << dw1Back[i*HIDDEN_DIM+j] << " ";
-    //    }
-    //    std::cout << "\n";
-    //}
 
+        logloss<<<2, 32>>>(L, smx, y_train_d, HIDDEN_DIM);  // we just pick the true label // L is [BATCH_SIZE,1]
+        CHECK_KERNEL();
+        CHECK_CUDA(cudaDeviceSynchronize());
+
+
+        rLoss<<<2, 32>>>(l, L);
+        CHECK_KERNEL();
+        CHECK_CUDA(cudaDeviceSynchronize());
+
+        back(1,1,l, "loss per batch");
+
+        //// backward starts here: 
+        dZ<<<gridDims1,blockDims1>>>(dZ1_d, smx, y_train_d, HIDDEN_DIM);
+        CHECK_KERNEL();
+        CHECK_CUDA(cudaDeviceSynchronize());
+
+
+        mult_A_T_B<<<gridDimW, blockDimW>>>(X_train_d, dZ1_d, dW1_d, INPUT_DIM, BATCH_SIZE, HIDDEN_DIM);
+        //cudaError_t err = cudaGetLastError();
+        //if (err != cudaSuccess) {
+        //    std::cerr << "Kernel launch failed: " << cudaGetErrorString(err) << "\n";
+        //    return;
+        //}
+        //CHECK_CUDA(cudaDeviceSynchronize());
+        //CHECK_KERNEL();
+
+        db<<<1,32>>>(db1_d, dZ1_d, HIDDEN_DIM);
+
+        update1D<<<1,HIDDEN_DIM>>>(b1_d, db1_d, HIDDEN_DIM);
+        update2D<<<gridDimf,blockDimf>>>(W1_d, dW1_d, INPUT_DIM, HIDDEN_DIM);
+
+        //back(INPUT_DIM, HIDDEN_DIM, dW1_d, "dW1: ");
+        back(1, HIDDEN_DIM, b1_d, "b1: ");
+
+    }
 
     return 0;
 }

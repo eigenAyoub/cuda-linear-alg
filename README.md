@@ -125,3 +125,45 @@ Instead of using `cudaDeviceSynchronize();`
 > apt-get update
 > apt-get -y install cudnn9-cuda-12
 ```
+
+
+
+* Weird side effects of my kernel when I put `printf` on. wtf? (like it actually work when `printf` is on). From Claude:
+
+
+### Root Cause
+The printf statement actually does affect execution because:
+1. printf forces thread serialization
+2. Acts as implicit synchronization point
+3. Affects thread scheduling and timing
+4. Can change memory access patterns
+
+### Solution
+To debug without affecting execution:
+```cuda-cpp
+__global__ void db(float* db, float* dZ, int hidden_dim) {
+    int row = threadIdx.x + blockDim.x*blockIdx.x;
+    
+    // Add explicit synchronization if needed
+    __syncthreads();
+    
+    float interVal = 0.0f;
+    #ifdef DEBUG
+    // Separate array for debugging values
+    __shared__ float debug_vals[5];
+    #endif
+    
+    for (unsigned int i = 0; i < BATCH_SIZE; i++) {
+        float curr_val = dZ[i*hidden_dim+row];
+        interVal += curr_val;
+    }
+    
+    db[row] = interVal;
+}
+```
+
+Better debugging approach:
+1. Use CUDA debugger (cuda-gdb)
+2. Store debug values in separate buffer
+3. Add explicit synchronization points
+4. Use CUDA events for timing analysis

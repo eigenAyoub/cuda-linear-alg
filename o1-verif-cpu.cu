@@ -127,15 +127,6 @@ void backward_cpu(
         }
     }
 
-    std::cout <<"\n dw\n"; // W1 is input_dim x hidden_dim
-    for (int i=0; i < inDim; i++){
-        for (int j=0; j < outDim; j++){
-            std::cout << dW[i*outDim+j] << " ";
-            
-        }
-        std::cout << "\n";
-    }
-    std::cout <<"dw-DONE \n"; // W1 is input_dim x hidden_dim
 
 
     // 3) db = sum(dZ) along batch => shape [outDim]
@@ -149,13 +140,6 @@ void backward_cpu(
     }
 
 
-    std::cout <<"\n db\n"; // W1 is input_dim x hidden_dim
-    for (int j=0; j < 10; j++){
-        std::cout << db[j] << " ";
-    }
-    std::cout << "\n";
-    std::cout <<"db-DONE \n"; // W1 is input_dim x hidden_dim
-
     // 4) update in-place
     for(int idx = 0; idx < (inDim * outDim); ++idx) {
         W[idx] -= lr * dW[idx];
@@ -163,6 +147,14 @@ void backward_cpu(
     for(int j = 0; j < outDim; ++j) {
         b[j] -= lr * db[j];
     }
+
+
+    std::cout <<"\n db after update\n"; // W1 is input_dim x hidden_dim
+    for (int j=0; j < 10; j++){
+        std::cout << b[j] << " ";
+    }
+    std::cout << "\n";
+
 }
 
 bool read_mnist_data(
@@ -373,13 +365,6 @@ int main() {
     std::vector<float> b(HIDDEN_DIM);
     utils::xavier_init(W.data(), b.data(), INPUT_DIM, HIDDEN_DIM);
 
-    for (int i=0; i < 10; i++){
-        for (int j=0; j < 5; j++){
-            std::cout << W[i*HIDDEN_DIM+j] << " ";
-        }
-        std::cout << "\n";
-    }
-
     // ------------------------------------------------------------
     // 3) Loop over mini-batches of size 64
     //    We'll do 1 epoch, ignoring leftover images if 60000
@@ -397,7 +382,7 @@ int main() {
     std::vector<float> db(HIDDEN_DIM);
 
     int n_epochs = 1;
-    numBatches = 1;
+    numBatches = 10;
 
     float testAcc = 0.0f; 
     const std::string testImagesBin = "data/test_mnist_images.bin";
@@ -436,13 +421,6 @@ int main() {
 
             std::cout <<"\nLoss = " << loss <<"\n"; 
 
-            std::cout <<"\n smx before the update \n"; 
-            for (int i=0; i < 4; i++){
-                for (int j=0; j < 10; j++){
-                    std::cout << A[i*HIDDEN_DIM+j] << " ";
-                }
-                std::cout << "\n";
-            }
             // Backward + Update
             backward_cpu(X_batch, A, y_batch,
                         BATCH_SIZE, INPUT_DIM, HIDDEN_DIM,

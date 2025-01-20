@@ -15,20 +15,20 @@
 
 __global__ void 
 update1D(float* W, float* dW, int x) {
-    int row = threadIdx.y + blockDim.y*blockIdx.y;
+    int row = threadIdx.x + blockDim.x*blockIdx.x;
     if (row<x){
-        W[row] = W[row] + 0.0001 * dW[row]; // how about that for an optmizer huh?
+        W[row] -= 0.001 * dW[row]; 
     }
 }
 
 __global__ void 
-update2D(float* W, float* dW, int y, int x) {
+update2D(float* W, float* dW, int Wy, int Wx) {
 
     int row = threadIdx.y + blockDim.y*blockIdx.y;
     int col = threadIdx.x + blockDim.x*blockIdx.x;
 
-    if (row<x && col<y){
-        W[row*y + col] += 0.0001 * dW[row*y + col];
+    if (row<Wy && col<Wx){
+        W[row*Wx + col] -= 0.001 * dW[row*Wx + col];
     }
 }
 
@@ -86,17 +86,13 @@ db(float* db, float* dZ, int hidden_dim){
     // make hidden dim higher and compare.
     // I only have 10 outputs.
     int row =  threadIdx.x + blockDim.x*blockIdx.x;  // row over Hidden dim 
-
-    float interVal  = 0.0f;
-    for (unsigned int i=0; i < BATCH_SIZE; i++ ){
-        interVal += dZ[i*hidden_dim+row];
-        if (row == 0){
-            if (i < 5){
-                printf("row %d, %d = %f, %f\n\n", row, i, dZ[i*hidden_dim+row], interVal);
-            }
+    if (row < hidden_dim){
+        float interVal  = 0.0f;
+        for (unsigned int i=0; i < BATCH_SIZE; i++ ){
+            interVal += dZ[i*hidden_dim+row];
         }
+        db[row] = interVal;
     }
-    db[row] = interVal;
 }
 // we would like the TILE_WIDTH to be the same as the block width.
 // so far we assume that the matrix is squared N x N
