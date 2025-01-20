@@ -1,7 +1,9 @@
 * This is not supposed to prove that you can derive gradients and do backprop from scratch. 
+
 * The main objective of this project is:
     * Get used to CUDA with C++.
     * Use as much NVIDIA ecosystem as possible.
+    * The ultimate goal is to code something interesting  (e.g., flash attention).
 
 ### Steps:
 
@@ -18,7 +20,7 @@
 
 2. Backprop:
 
-* As always, we super abuse notation, and simply refer to `dl/dW` as `dW` (maybe add better notation later on, include dims in decl, etc.). We get the following:
+* As always, we refer to `dl/dW` as `dW` (maybe add better notation later on, include dims in decl, etc.). We get the following:
 
 
 ```math
@@ -35,7 +37,7 @@
 \boxed{db = \mathbf{1}^T dZ}
 ```
 
-* In our case, y is one-hot-encoded, `dZ` simplifies as follows:
+* In our case, `y` is one-hot-encoded, `dZ` simplifies as follows:
 
 ```math
 dZ_{ij} = \frac{1}{m}(A_{ij} - \mathbf{1}\{j = y_i\})
@@ -49,13 +51,19 @@ dZ_{ij} = \frac{1}{m}(A_{ij} - \mathbf{1}\{j = y_i\})
     - [x] Cross-entropy loss (++ reduction pattern)
     - [x] Check correctness with cuDNN.
 
-
 - [x] Backprop 
     - [x] Derive Backpropagation with your hands (I messed up the softmax for so long :/).
     - [x] Implement the derivations 
     - [x] Verify with CPU code (just use o1 code) 
 
-- [ ] Optimize the forward pass ():
+- [ ] Add complexity (for the sake of using more compute):
+    - [ ] Add one layer 
+    - [ ] start comparing to pytorch/python
+    - [ ] Systematic way to transfer weights accross between pytorch and C++.
+    - [ ] use Adam?
+    - [ ] more layers, etc?
+
+- [ ] Optimize (now that you have more compute complexity to do smth):
     - [ ] profile your code, know how to use nsight 
     - [ ] use cuda primitives for math ops (any differences?)
     - [ ] warp level primitives, is it even useful?
@@ -64,17 +72,11 @@ dZ_{ij} = \frac{1}{m}(A_{ij} - \mathbf{1}\{j = y_i\})
     - [ ] play with compiler options, precisions. 
     - [ ] ask Claude/o1 what's wrong with my code. 
 
-- [ ] Improve training:
-    - [ ] systematic way to transfer weights accross between pytorch and C++.
-    - [ ] use Adam?
-    - [ ] more layers, etc.
-
-- [ ] MLP to MHA.. to flsh...?
+- [ ] What's next? MLP to MHA to flash-attn...?
 
 Few small trips:
 * Profile your code, use NVIDIA NSIGHTs.
 
-The ultimate goal is to code something interesting, e.g., flash attention. If not code then at least appreciate the intricacies of such high level implementations.
 
 ### dElEtE this:
 
@@ -167,3 +169,6 @@ Better debugging approach:
 2. Store debug values in separate buffer
 3. Add explicit synchronization points
 4. Use CUDA events for timing analysis
+
+
+### Debugging kernels is no easy task!

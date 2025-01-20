@@ -1,6 +1,11 @@
 *.bin
 *.o
 *.out
+*.parquet
+*.txt
+*.npy
+*.csv
+
 
 code-you-might-need.md
 

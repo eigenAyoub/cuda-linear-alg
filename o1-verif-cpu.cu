@@ -40,6 +40,7 @@ float forward_cpu(
         }
     }
 
+
     // 2) add b
     for(int i = 0; i < B; ++i) {
         for(int j = 0; j < outDim; ++j) {
@@ -68,13 +69,12 @@ float forward_cpu(
         }
     }
 
-
     // 4) cross-entropy loss (mean over batch)
     float totalLoss = 0.f;
     for(int i = 0; i < B; ++i) {
         int label = static_cast<int>(y[i]);
         // clamp to avoid log(0)
-        float pred = std::max(A[i*outDim + label], 1e-30f);
+        float pred = std::max(A[i*outDim + label], 1e-10f);
         totalLoss += -std::log(pred);
     }
     return totalLoss / float(B); 
@@ -147,14 +147,6 @@ void backward_cpu(
     for(int j = 0; j < outDim; ++j) {
         b[j] -= lr * db[j];
     }
-
-
-    std::cout <<"\n db after update\n"; // W1 is input_dim x hidden_dim
-    for (int j=0; j < 10; j++){
-        std::cout << b[j] << " ";
-    }
-    std::cout << "\n";
-
 }
 
 bool read_mnist_data(
@@ -363,7 +355,11 @@ int main() {
     // ------------------------------------------------------------
     std::vector<float> W(INPUT_DIM * HIDDEN_DIM);
     std::vector<float> b(HIDDEN_DIM);
-    utils::xavier_init(W.data(), b.data(), INPUT_DIM, HIDDEN_DIM);
+    utils::loadMatrix("W1.txt", W, INPUT_DIM, HIDDEN_DIM);
+    utils::loadMatrix("b1.txt", b, 1, HIDDEN_DIM);
+
+
+    //utils::xavier_init(W.data(), b.data(), INPUT_DIM, HIDDEN_DIM);
 
     // ------------------------------------------------------------
     // 3) Loop over mini-batches of size 64
@@ -371,7 +367,7 @@ int main() {
     //    is not divisible by 64 exactly.
     // ------------------------------------------------------------
     int numBatches = NUM_IMAGES / BATCH_SIZE;
-    float lr = 0.001f;  // your chosen learning rate
+    float lr = 0.0001f;  // your chosen learning rate
 
     // Buffers for forward pass
     std::vector<float> Z(BATCH_SIZE * HIDDEN_DIM);

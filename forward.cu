@@ -72,7 +72,17 @@ int main(){
 
     std::vector<float> W1_h(INPUT_DIM*HIDDEN_DIM);
     std::vector<float> b1_h(HIDDEN_DIM);
-    utils::xavier_init(W1_h.data(), b1_h.data(), INPUT_DIM, HIDDEN_DIM);
+
+    utils::loadWeights("W1.txt", W1_h,INPUT_DIM, HIDDEN_DIM);
+    utils::loadBiases("b1.txt", b1_h, HIDDEN_DIM);
+
+    for (int i = 0; i < 10; i++){
+        for (int j = 0; j < 10; j++){
+            std::cout << W1_h[i*HIDDEN_DIM+j] << " ";
+        }
+        std::cout << "\n";
+    }
+
 
     float *X_train_d, *y_train_d;
 
@@ -81,6 +91,7 @@ int main(){
     float* b1_d;
     float* Y1_d;  // Y1_h = X @ W1_h   >> [B, 10] >> [64x10]
     float* Z1_d;  // Z1_h = Y1_h + b1_h 
+
     float* smx;   // smx = log-softmax(Z1_h) ?? [B, 10]
     float* L;     // -logloss // [batch_size]
     float* l;     // sum(L)  // scalar
@@ -102,11 +113,8 @@ int main(){
 
     //back(INPUT_DIM, HIDDEN_DIM, W1_d);
 
-    // backprop stuff
-    float* dW1_d;
-    float* db1_d;
-    float* dZ1_d;
-    float* dA1_d;
+    // backprop stuf, 
+    float *dW1_d, *db1_d, *dZ1_d, *dA1_d;
 
     cudaMalloc((void **) &dW1_d, sizeof(float)*W1_h.size());
     cudaMalloc((void **) &db1_d, sizeof(float)*b1_h.size());
@@ -178,7 +186,7 @@ int main(){
         update2D<<<gridDimf,blockDimf>>>(W1_d, dW1_d, INPUT_DIM, HIDDEN_DIM);
 
         //back(INPUT_DIM, HIDDEN_DIM, dW1_d, "dW1: ");
-        back(1, HIDDEN_DIM, b1_d, "b1: ");
+        //back(1, HIDDEN_DIM, b1_d, "b1: ");
 
     }
 

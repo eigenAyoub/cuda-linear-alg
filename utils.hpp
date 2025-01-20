@@ -91,9 +91,35 @@ namespace utils {
         }
     }
 
+    bool loadMatrix(const std::string &filename,
+                    std::vector<float> &weights,
+                    int rows,
+                    int cols)
+    {
+        std::ifstream file(filename);
+        if (!file.is_open()) {
+            std::cerr << "Error opening file: " << filename << std::endl;
+            return false;
+        }
 
+        // (Optional) Ensure the vector has the right size
+        if (static_cast<int>(weights.size()) != rows * cols) {
+            weights.resize(rows * cols);
+        }
 
+        // Read the file line-by-line
+        for (int r = 0; r < rows; ++r) {
+            for (int c = 0; c < cols; ++c) {
+                if (!(file >> weights[r * cols + c])) {
+                    std::cerr << "Error reading data at row " << r
+                            << ", col " << c << std::endl;
+                    return false;
+                }
+            }
+        }
 
+        return true;
+    }
 
 }
     // Usage:

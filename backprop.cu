@@ -28,7 +28,7 @@ update2D(float* W, float* dW, int Wy, int Wx) {
     int col = threadIdx.x + blockDim.x*blockIdx.x;
 
     if (row<Wy && col<Wx){
-        W[row*Wx + col] -= 0.001 * dW[row*Wx + col];
+        W[row*Wx + col] -= 0.001 * dW[row*Wy + col];
     }
 }
 
