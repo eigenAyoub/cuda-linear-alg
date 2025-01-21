@@ -59,9 +59,7 @@ dZ_{ij} = \frac{1}{m}(A_{ij} - \mathbf{1}\{j = y_i\})
 - [ ] Add complexity (for the sake of using more compute):
     - [ ] Add one layer 
     - [ ] start comparing to pytorch/python
-    - [ ] Systematic way to transfer weights accross between pytorch and C++.
-    - [ ] use Adam?
-    - [ ] more layers, etc?
+    - [X] Systematic way to transfer weights accross between pytorch and C++.
 
 - [ ] Optimize (now that you have more compute complexity to do smth):
     - [ ] profile your code, know how to use nsight 
@@ -78,24 +76,6 @@ Few small trips:
 * Profile your code, use NVIDIA NSIGHTs.
 
 
-### dElEtE this:
-
-* warp level primitives?
-* read some papers, related to prime intellect.
-
-Jan 20:
-
-- [ ] Better structure of the code 
-    - [ ] add cuda error checks
-    - [ ] just remove the .cuh?
-    - [ ] move every to src
-
-- [x] Backprop correctness
-- [ ] Reduction and histogram
-- [ ] Nsight Compute.
-- [ ] Cache misses?
-- [ ] Warp-level primitives
-- [ ] Atomic level ops
 
 ### Take this somewhere else:
 

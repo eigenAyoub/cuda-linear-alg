@@ -17,7 +17,7 @@ __global__ void
 update1D(float* W, float* dW, int x) {
     int row = threadIdx.x + blockDim.x*blockIdx.x;
     if (row<x){
-        W[row] -= 0.001 * dW[row]; 
+        W[row] -= 0.0001 * dW[row]; 
     }
 }
 
@@ -28,7 +28,7 @@ update2D(float* W, float* dW, int Wy, int Wx) {
     int col = threadIdx.x + blockDim.x*blockIdx.x;
 
     if (row<Wy && col<Wx){
-        W[row*Wx + col] -= 0.001 * dW[row*Wy + col];
+        W[row*Wx + col] -= 0.0001 * dW[row*Wx + col];
     }
 }
 
@@ -48,36 +48,6 @@ dZ(float* dZ, float* A, float* y_true, int hidden_dim){
         dZ[row*hidden_dim+col] = update / BATCH_SIZE;
     }
 
-}
-
-__global__ void
-mult_A_B_T(float* A, float* B, float* C, int Ay, int cWidth, int Bx){ 
-
-    __shared__ float sTile_A[TILE_WIDTH][TILE_WIDTH];
-    __shared__ float sTile_B[TILE_WIDTH][TILE_WIDTH];
-
-    int tIdy = threadIdx.y; 
-    int tIdx  = threadIdx.x;
-
-    int row = threadIdx.y + blockDim.y*blockIdx.y;
-    int col = threadIdx.x + blockDim.x*blockIdx.x;
-
-    float interVal = 0 ;
-
-    for (int i= 0; i < cWidth; i+= TILE_WIDTH){
-        sTile_A[tIdy][tIdx] = (row < Ay && tIdx+i < cWidth) ? A[row*cWidth + tIdx + i] : 0.0f;
-        sTile_B[tIdy][tIdx] = (col < Bx && tIdy+i < cWidth) ? B[(tIdy+ i) + col*cWidth] : 0.0f;
-        __syncthreads();
-
-        for (int k=0; k<TILE_WIDTH; ++k){
-            interVal += sTile_A[tIdy][k]*sTile_B[k][tIdx];
-        }
-        __syncthreads();
-    }
-
-    if (row < Ay  && col < Bx){
-        C[row*Bx + col] = interVal;
-    }
 }
 
 __global__ void
@@ -106,6 +76,12 @@ softmax(float* A, float *Z, int hidden_dim){
     __shared__ float buffPerBlock[32];
     __shared__ int   max[32];
 
+
+    // this block should be replaced with warp-level primitives.
+    // only if hidden _dim < blockidx? or some 32 or some shit??
+    // spits first the terms before you do some shit
+    // spit the sums then try the faster trick
+
     if (threadIdx.x == 0) {
         max[threadIdx.y] = 0;
         buffPerBlock[threadIdx.y] = 0.0f;
@@ -117,19 +93,18 @@ softmax(float* A, float *Z, int hidden_dim){
     }
     __syncthreads();
 
-
-    Z[row*hidden_dim+col] = exp(Z[row*hidden_dim+col] - Z[row*hidden_dim + max[threadIdx.y]]);
+    if (row < BATCH_SIZE && col < hidden_dim){
+        Z[row*hidden_dim+col] = exp(Z[row*hidden_dim+col] - Z[row*hidden_dim + max[threadIdx.y]]);
+    }
     __syncthreads();
 
-    if (threadIdx.x == 0) {
+    if (threadIdx.x == 0 && row < BATCH_SIZE) {
         for (int i =0; i < hidden_dim; i++){
             buffPerBlock[threadIdx.y] += Z[row*hidden_dim+i];
         }
     }
     __syncthreads();
 
-    //A[row*hidden_dim+col] = Z[row*hidden_dim+col]/buffPerBlock[threadIdx.y];
-    //A[row*hidden_dim+col] = fmaxf(Z[row*hidden_dim+col]/buffPerBlock[threadIdx.y],1e-30f);
     A[row*hidden_dim+col] = Z[row*hidden_dim+col]/buffPerBlock[threadIdx.y];
 }
 
@@ -187,12 +162,13 @@ mult_A_T_B(float* A, float* B, float* C, int Ay, int cWidth, int Bx){ // cWidth 
 // next kernel should have as many threads as the BATCH_SIZE // and just 1D
 __global__ void
 logloss(float* L, float *A, float* y_train, int hidden_dim){
-    // A is assumed to be [BATCH_SIZE x N_CLASSES] // assumed to be the log softmax.
+    // A is assumed to be [BATCH_SIZE x N_CLASSES] // assumed to be the softmax.
     // L = [-log(loss)] // [BATCH_SIZE]
 
     int row = threadIdx.x + blockDim.x*blockIdx.x;
     if (row<BATCH_SIZE){
-        L[row] = -__logf(fmaxf(A[row*hidden_dim+(int)y_train[row]], 1e-30f));
+        float pred = fmaxf(A[row*hidden_dim+(int)y_train[row]], 1e-30f);
+        L[row] = -__logf(pred);
     }
 }
 
@@ -226,6 +202,7 @@ coalesced_bias(float* Z, float* Y, float* b, int hidden_dim)
 
 __global__ void
 mult(float* A, float* B, float* C, int Ay, int cWidth, int Bx){ // cWidth as common width.
+
     __shared__ float sTile_A[TILE_WIDTH][TILE_WIDTH];
     __shared__ float sTile_B[TILE_WIDTH][TILE_WIDTH];
 
@@ -253,6 +230,39 @@ mult(float* A, float* B, float* C, int Ay, int cWidth, int Bx){ // cWidth as com
     }
 }
 
+__global__ void
+mult_A_B_T(float* A, float* B, float* C, int Ay, int cWidth, int Bx){ // cWidth as common width.
+    // B^T is of shape cWidth x Bx
+
+    __shared__ float sTile_A[TILE_WIDTH][TILE_WIDTH];
+    __shared__ float sTile_B[TILE_WIDTH][TILE_WIDTH];
+
+    int tIdy = threadIdx.y; 
+    int tIdx  = threadIdx.x;
+
+    int row = threadIdx.y + blockDim.y*blockIdx.y;
+    int col = threadIdx.x + blockDim.x*blockIdx.x;
+
+    float interVal = 0 ;
+
+    for (int i= 0; i < cWidth; i+= TILE_WIDTH){
+        sTile_A[tIdy][tIdx] = (row < Ay && tIdx+i < cWidth) ? A[row*cWidth + tIdx + i] : 0.0f;
+        sTile_B[tIdy][tIdx] = (col < Bx && tIdy+i < cWidth) ? B[(tIdy+ i)+ col*cWidth] : 0.0f;
+        //B^T[(tIdy+ i)][col] : 0.0f;
+        // = B[col][(tIdy+ i)] : 0.0f;
+        // = B[col*cWidth + tIdy + i]
+        __syncthreads();
+
+        for (int k=0; k<TILE_WIDTH; ++k){
+            interVal += sTile_A[tIdy][k]*sTile_B[k][tIdx];
+        }
+        __syncthreads();
+    }
+
+    if (row < Ay  && col < Bx){
+        C[row*Bx + col] = interVal;
+    }
+}
 
 __global__ void
 rLoss(float *l, float* L){
@@ -278,7 +288,20 @@ relu(float* A, float* Z, int hidden_dim){
     int row = blockIdx.y*blockDim.y + threadIdx.y ;
     int col = blockIdx.x*blockDim.x + threadIdx.x ;
 
-    A[row*hidden_dim+col]  = (Z[row*hidden_dim+col] > 0)? Z[0]:0;
+    if (row < BATCH_SIZE && col < hidden_dim){
+        A[row*hidden_dim+col]  = (Z[row*hidden_dim+col] > 0)? Z[row*hidden_dim+col]:0.0f;
+    }
+}
+
+__global__ void
+dRelu(float *dA, float *Z, float *dZ, int hidden_dim){
+
+    int row = blockIdx.y*blockDim.y + threadIdx.y ;
+    int col = blockIdx.x*blockDim.x + threadIdx.x ;
+
+    if (row < BATCH_SIZE && col < hidden_dim){
+        dZ[row*hidden_dim+col]  = (Z[row*hidden_dim+col] > 0)? dA[row*hidden_dim+col]:0.0f;
+    }
 }
 
 bool read_mnist_data(
