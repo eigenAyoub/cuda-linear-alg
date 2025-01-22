@@ -67,7 +67,7 @@ db(float* db, float* dZ, int hidden_dim){
 // we would like the TILE_WIDTH to be the same as the block width.
 // so far we assume that the matrix is squared N x N
 
-__global__ void
+__global__ void // this was completely wrong!
 softmax(float* A, float *Z, int hidden_dim){
 
     int row = blockDim.y * blockIdx.y + threadIdx.y; 
@@ -75,12 +75,6 @@ softmax(float* A, float *Z, int hidden_dim){
 
     __shared__ float buffPerBlock[32];
     __shared__ int   max[32];
-
-
-    // this block should be replaced with warp-level primitives.
-    // only if hidden _dim < blockidx? or some 32 or some shit??
-    // spits first the terms before you do some shit
-    // spit the sums then try the faster trick
 
     if (threadIdx.x == 0) {
         max[threadIdx.y] = 0;
@@ -393,6 +387,3 @@ void gpuSoftmax(float* data, int batch_size, int hidden_dim) {
     cudnnDestroyTensorDescriptor(data_desc);
     cudnnDestroy(cudnn);
 }
-
-// Usage:
-// gpuSoftmax(data, BATCH_SIZE, HIDDEN_DIM);

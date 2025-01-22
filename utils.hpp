@@ -52,14 +52,64 @@ namespace utils {
                         formatted += '_';
                     }
                 }
-
                 std::cout << _task_name << ": " << formatted << " μs" << std::endl;
+            }
+
+            void reset(std::string newTaskName) {
+                _start = std::chrono::high_resolution_clock::now();
+                _task_name = newTaskName;
             }
 
         private:
             std::string _task_name;
             std::chrono::high_resolution_clock::time_point _start;
         };
+
+    std::string formatTime(float milliseconds) {
+        std::ostringstream formatted;
+        formatted << std::fixed << std::setprecision(3) << std::left << std::setw(30);
+        
+        std::string value;
+        if (milliseconds >= 1000.0f) {
+            value = std::to_string(static_cast<long long>(milliseconds/1000.0f));
+            // Add underscores
+            std::string result;
+            int len = value.length();
+            for (int i = 0; i < len; i++) {
+                result += value[i];
+                if (i < len - 1 && (len - i - 1) % 3 == 0) {
+                    result += '_';
+                }
+            }
+            formatted << result << " s";
+        }
+        else if (milliseconds >= 1.0f) {
+            value = std::to_string(static_cast<long long>(milliseconds));
+            std::string result;
+            int len = value.length();
+            for (int i = 0; i < len; i++) {
+                result += value[i];
+                if (i < len - 1 && (len - i - 1) % 3 == 0) {
+                    result += '_';
+                }
+            }
+            formatted << result << " ms";
+        }
+        else {
+            value = std::to_string(static_cast<long long>(milliseconds * 1000.0f));
+            std::string result;
+            int len = value.length();
+            for (int i = 0; i < len; i++) {
+                result += value[i];
+                if (i < len - 1 && (len - i - 1) % 3 == 0) {
+                    result += '_';
+                }
+            }
+            formatted << result << " μs";
+        }
+        
+        return formatted.str();
+    }
 
     void xavier_init(float* W, float *b, int input_dim, int output_dim) {
 

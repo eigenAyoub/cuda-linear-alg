@@ -254,11 +254,11 @@ int main(){
         CHECK_KERNEL();
         CHECK_CUDA(cudaDeviceSynchronize());
 
-        //cudaError_t err = cudaGetLastError();
-        ////if (err != cudaSuccess) {
-        ////    std::cerr << "Kernel launch failed: " << cudaGetErrorString(err) << "\n";
-        ////    return;
-        ////}
+        cudaError_t err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            std::cerr << "Kernel launch failed: " << cudaGetErrorString(err) << "\n";
+            return;
+        }
 
 
 
