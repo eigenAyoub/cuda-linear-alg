@@ -38,11 +38,37 @@ namespace utils {
                 _start = std::chrono::high_resolution_clock::now();
             }
 
-            void report() {
+            //std::string report() {
+            //    auto end = std::chrono::high_resolution_clock::now();
+            //    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - _start).count();
+
+            //    std::ostringstream ss;
+            //    ss << std::fixed << std::setprecision(3);
+            //    ss << std::left << std::setw(30) << _task_name + ": ";
+
+            //    if (duration >= 1000000) {
+            //        ss << duration/1000000.0 << " s";
+            //    } 
+            //    else if (duration >= 1000) {
+            //        ss << duration/1000.0 << " ms";
+            //    }
+            //    else {
+            //        ss << duration << " μs";
+            //    }
+
+            //    return ss.str();
+            //}
+
+            std::string report() {
                 auto end = std::chrono::high_resolution_clock::now();
                 auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - _start).count();
 
                 std::string formatted;
+
+                std::ostringstream formattedF;
+                formattedF << std::fixed << std::setprecision(3) ;
+                formattedF << std::left << std::setw(30) << _task_name;
+
                 auto dur_str = std::to_string(duration);
                 int len = dur_str.length();
                 
@@ -52,7 +78,9 @@ namespace utils {
                         formatted += '_';
                     }
                 }
-                std::cout << _task_name << ": " << formatted << " μs" << std::endl;
+                formattedF << formatted << " μs";
+
+                return formattedF.str();
             }
 
             void reset(std::string newTaskName) {
@@ -67,7 +95,7 @@ namespace utils {
 
     std::string formatTime(float milliseconds) {
         std::ostringstream formatted;
-        formatted << std::fixed << std::setprecision(3) << std::left << std::setw(30);
+        formatted << std::fixed << std::setprecision(3) ;
         
         std::string value;
         if (milliseconds >= 1000.0f) {
