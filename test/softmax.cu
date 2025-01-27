@@ -26,11 +26,10 @@ __global__ void softmaxShared(float* A, float *Z, int hidden_dim){
     __shared__ float max[1];
 
 
-    if (col == 0 && row < BATCH_SIZE && threadIdx.y < BLOCKDIMY) {
+    if (col == 0 && row < BATCH_SIZE && threadIdx.y < BLOCKDONE) {
         max[0] = Z[row*hidden_dim];
         for (int i = 1; i < hidden_dim; i++){
-            float zt = Z[row*hidden_dim+i];
-            max[0] = fmaxf(max[threadIdx.y],zt) ;
+            max[0] = fmaxf(max[threadIdx.y],Z[row*hidden_dim+i]) ;
         }
         buffPerBlock[0] = 0.0f;
     }
@@ -41,15 +40,67 @@ __global__ void softmaxShared(float* A, float *Z, int hidden_dim){
         A[row*hidden_dim+col] = exp(Z[row*hidden_dim+col] -  max[threadIdx.y]);
     }
     __syncthreads();
-
-    if (col < hidden_dim && row < BATCH_SIZE) {
-        atomicAdd(&buffPerBlock[threadIdx.y], A[row*hidden_dim+col]);
+    
+    // now Z is useles; I can use it sum over? using a simple reduction scheme?
+    // maybe Z is being used eventually.
+    // you don't want to keep changing things
+    // you stupid fuck
+    
+    if (col == 0 && row < BATCH_SIZE) {
+        buffPerBlock[0] = A[row*hidden_dim];
+        for (int i = 1; i < hidden_dim; i++){
+            buffPerBlock[0] += A[row*hidden_dim+i];
+        }
     }
     __syncthreads();
 
     // maxP
     if (col < hidden_dim && row < BATCH_SIZE) {
         A[row*hidden_dim+col] /= buffPerBlock[threadIdx.y];
+    }
+}
+
+// block of 16 x 16
+// ok
+__global__ void softmaxTiled(float* A, float *Z, int hidden_dim){
+
+    int row = blockDim.y * blockIdx.y + threadIdx.y; 
+    int col = blockDim.x * blockIdx.x + threadIdx.x; 
+
+    extern __shared__ float buff[];
+
+	// compute max
+    if (col == 0 && row < BATCH_SIZE && threadIdx.y < BLOCKDIMY) {
+        buff[threadIdx.y] = Z[row*hidden_dim];
+        float zt = 0.0f;
+        for (int i = 1; i < hidden_dim; i++){
+            zt = Z[row*hidden_dim+i];
+            buff[threadIdx.y] = fmaxf(buff[threadIdx.y],zt);
+        }
+    }
+    __syncthreads();
+
+	// update A: tiled way
+    if (col < blockDim.x){ // same shared memory
+        for (unsigned int tile = 0 ; tile+col < hidden_dim; tile+=blockDim.x){
+			A[row*hidden_dim+col+tile] = exp(Z[row*hidden_dim+col+tile] -  buff[threadIdx.y]);
+        }
+        //if (col == 0)   buff[threadIdx.y] = 0.0f; // reset for sum
+    }
+    __syncthreads();
+
+    if (col == 0 && row < BATCH_SIZE && threadIdx.y < BLOCKDIMY) {
+		buff[threadIdx.y] = A[row*hidden_dim];
+        for (int i = 1; i < hidden_dim; i++){
+			buff[threadIdx.y] += A[row*hidden_dim+i];
+        }
+    }
+    __syncthreads();
+
+    if (col < blockDim.x){ 
+        for (unsigned int tile = 0 ; tile+col < hidden_dim; tile+=blockDim.x){
+			A[row*hidden_dim+col+tile] /= buff[threadIdx.y];
+        }
     }
 }
 
@@ -206,6 +257,35 @@ __global__ void softmaxWithDRAMBuffer2(float* A, float *Z, int hidden_dim){
 }
 
 
+bool verifyMaxIndices(const float* A, const float* B, 
+                     int batch_size, int output_dim) {
+    for (int i = 0; i < batch_size; i++) {
+        // Find max indices
+        int max_idx1 = 0, max_idx2 = 0;
+        float max1 = A[i * output_dim];
+        float max2 = B[i * output_dim];
+        
+        for (int j = 1; j < output_dim; j++) {
+            if (A[i * output_dim + j] > max1) {
+                max1 = A[i * output_dim + j];
+                max_idx1 = j;
+            }
+            if (B[i * output_dim + j] > max2) {
+                max2 = B[i * output_dim + j];
+                max_idx2 = j;
+            }
+        }
+        
+        if (max_idx1 != max_idx2) {
+            printf("Row %d: Different max indices: %d vs %d\n", 
+                   i, max_idx1, max_idx2);
+            return false;
+        }
+    }
+    return true;
+}
+
+
 __global__ void softmaxWithDRAMBufferAtomic(float* A, float *Z, int hidden_dim){
 
     int row = blockDim.y * blockIdx.y + threadIdx.y; 
@@ -252,6 +332,57 @@ float returnMaxDiff(float * A, float * B, int bs, int dA, int d){
     return diff;
 }
 
+
+void gpuSoftmax(float* data, int batch_size, int hidden_dim) {
+    cudnnHandle_t cudnn;
+    cudnnCreate(&cudnn);
+
+    // Allocate device memory
+    float *d_data;
+    size_t matrix_size = batch_size * hidden_dim * sizeof(float);
+    cudaMalloc((void**)&d_data, matrix_size);
+    cudaMemcpy(d_data, data, matrix_size, cudaMemcpyHostToDevice);
+
+    // Create tensor descriptor for batch_size x hidden_dim matrix
+    cudnnTensorDescriptor_t data_desc;
+    cudnnCreateTensorDescriptor(&data_desc);
+    // NCHW: batch_size x hidden_dim x 1 x 1
+    cudnnSetTensor4dDescriptor(
+        data_desc,
+        CUDNN_TENSOR_NCHW,
+        CUDNN_DATA_FLOAT,
+        batch_size,    // N: number of images
+        hidden_dim,    // C: number of channels (features)
+        1,            // H: height
+        1             // W: width
+    );
+
+    // Perform softmax
+    float alpha = 1.0f, beta = 0.0f;
+    cudnnSoftmaxForward(
+        cudnn,
+        //CUDNN_SOFTMAX_ACCURATE,
+        CUDNN_SOFTMAX_FAST,
+        CUDNN_SOFTMAX_MODE_CHANNEL,  // Softmax across hidden_dim
+        &alpha,
+        data_desc,
+        d_data,
+        &beta,
+        data_desc,
+        d_data
+    );
+
+    // Copy result back
+    cudaMemcpy(data, d_data, matrix_size, cudaMemcpyDeviceToHost);
+
+    // Cleanup
+    cudaFree(d_data);
+    cudnnDestroyTensorDescriptor(data_desc);
+    cudnnDestroy(cudnn);
+}
+
+
+
 int main(){
 
     cudaEvent_t start, stop;
@@ -262,8 +393,22 @@ int main(){
     std::vector<float> b(OUTPUT_DIM);
     utils::xavier_init(W.data(), b.data(),BATCH_SIZE, OUTPUT_DIM);
 
+    std::vector<float> W_cudnn = W; // atomic
 
     std::vector<float> W_cpu(BATCH_SIZE*OUTPUT_DIM, 0.0f);
+
+    float ms;
+    cudaEventRecord(start);
+
+    gpuSoftmax(W_cudnn.data(), BATCH_SIZE, OUTPUT_DIM);
+
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    cudaEventElapsedTime(&ms, start, stop);
+    std::cout << std::left << std::setw(30) <<">> cuDNN implementation took" 
+                                            << utils::formatTime(ms) << std::endl;
+
+
 
 
     // CPU time.
@@ -272,6 +417,47 @@ int main(){
     std::string cpuTime = timeCPU.report();
 
 
+    std::cout << "CPU and cudnn implementation difference: "<< returnMaxDiff(W_cpu.data(),W_cudnn.data(), BATCH_SIZE, OUTPUT_DIM, 0)<< "\n";
+    float epsilon = 1e-4f;  // Adjust based on precision needs
+
+    // Check each row
+    for (int i = 0; i < BATCH_SIZE; i++) {
+        // Find max values for each implementation
+        float max1 = W_cpu[i * OUTPUT_DIM];
+        float max2 = W_cudnn[i * OUTPUT_DIM];
+        
+        for (int j = 1; j < OUTPUT_DIM; j++) {
+            max1 = fmaxf(max1, W_cpu[i * OUTPUT_DIM + j]);
+            max2 = fmaxf(max2, W_cudnn[i * OUTPUT_DIM + j]);
+        }
+        
+        // Compare max values
+        float max_diff = fabsf(max1 - max2);
+        if (max_diff > epsilon) {
+            printf("Row %d: Max difference too large: %e\n", i, max_diff);
+        }
+
+        // Verify row sums to 1
+        float sum1 = 0.0f, sum2 = 0.0f;
+        float max_element_diff = 0.0f;
+        
+        for (int j = 0; j < OUTPUT_DIM; j++) {
+            sum1 += W_cpu[i * OUTPUT_DIM + j];
+            sum2 += W_cudnn[i * OUTPUT_DIM + j];
+            max_element_diff = fmaxf(max_element_diff, 
+                                    fabsf(W_cpu[i * OUTPUT_DIM + j] - W_cudnn[i * OUTPUT_DIM + j]));
+        }
+        
+        if (fabsf(sum1 - 1.0f) > epsilon || fabsf(sum2 - 1.0f) > epsilon) {
+            printf("Row %d: Sum not close to 1.0: %f, %f\n", i, sum1, sum2);
+        }
+        
+        if (max_element_diff > epsilon) {
+            printf("Row %d: Max element difference: %e\n", i, max_element_diff);
+        }
+    }
+
+    std::cout << "Reality " << verifyMaxIndices(W_cpu.data(), W_cudnn.data(), BATCH_SIZE, OUTPUT_DIM);
 
     // it's just GPU now.
 
@@ -286,7 +472,6 @@ int main(){
     std::cout << "\nMem size for matrix: "  << BATCH_SIZE*OUTPUT_DIM*sizeof(float)/btoMB << " MB\n";
     std::cout << "Mem size for matrix w/ buff: "  << BATCH_SIZE*(OUTPUT_DIM+2)*sizeof(float)/btoMB << "MB\n";
 
-    float ms;
     float *W_d;
     float *A_d;  // we bringing this back.
     float *A_d2; // we bringing this back.
@@ -317,10 +502,14 @@ int main(){
 
 
 
-    dim3 blockDim16(16,16);     
-    dim3 gridDimOB(ceil(OUTPUT_DIM/16.0f),ceil(BATCH_SIZE/16.0f)); // 2 x 4
+    float out = 64.0f;
+    float batch = 4.0f;
 
+    dim3 blockDim16(out,batch);     
+    dim3 gridDimOB(ceil(OUTPUT_DIM/out),ceil(BATCH_SIZE/batch)); // 2 x 4
+    
     // warm-up.
+
     for (int i = 0; i < 20; i++){
         softmax<<<gridDimOB, blockDim16>>>(A_d, W_d, OUTPUT_DIM); 
     }
@@ -333,7 +522,8 @@ int main(){
     // GPU - CUDA, Naive
     cudaEventRecord(start);
 
-    softmax<<<gridDimOB, blockDim16>>>(A_d, W_d, OUTPUT_DIM); 
+    softmaxTiled<<<gridDimOB, blockDim16, batch*sizeof(float)>>>(A_d, W_d, OUTPUT_DIM); 
+    // 285 ms > normal
 
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
@@ -341,6 +531,7 @@ int main(){
     std::cout << std::left << std::setw(30) <<">> GPU - naive softmax: " 
                                             << utils::formatTime(ms) << std::endl;
     cudaMemcpy(W_gpu.data(), A_d, sizeof(float)*W.size(), cudaMemcpyDeviceToHost);
+
 
 
     // GPU - CUDA, shared; one block per row 
