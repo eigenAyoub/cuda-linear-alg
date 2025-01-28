@@ -12,7 +12,8 @@ __global__ void coalesced_bias(float* Z, float* Y, float* b, int hidden_dim);
 
 // forward functions 
 __global__ void mult(float* A, float* B, float* C, int Ax, int cWidth, int By);
-__global__ void softmax(float* A, float *Z, int hidden_dim);
+__global__ void softmax(float* A, float *Z, int hidden_dim, int warpsPerRow);
+__global__ void argmax(float* A, float *Z, int hidden_dim, int warpsPerRow, float * y_true, float *pred);
 __global__ void logloss(float* L, float *A, float* y_train, int hidden_dim);
 __global__ void rLoss(float *l, float* L);
 __global__ void relu(float* A, float* Z, int hidden_dim);

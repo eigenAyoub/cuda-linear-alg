@@ -9,6 +9,8 @@
 
 #define TILE_WIDTH 16
 #define BATCH_SIZE 64
+#define FULL_MASK 0xffffffff
+#define WARPS_PER_ROW 1 
 
 // backprop stuff
 
@@ -65,41 +67,129 @@ db(float* db, float* dZ, int hidden_dim){
     }
 }
 // we would like the TILE_WIDTH to be the same as the block width.
-// so far we assume that the matrix is squared N x N
 
-__global__ void // this was completely wrong!
-softmax(float* A, float *Z, int hidden_dim){
+__global__ void argmax(float* A, float *Z, int hidden_dim, int warpsPerRow, float *y_true, float *pred){
 
-    int row = blockDim.y * blockIdx.y + threadIdx.y; 
-    int col = blockDim.x * blockIdx.x + threadIdx.x; 
+    int col = threadIdx.x; 
+    int row = blockIdx.x; 
 
-    __shared__ float buffPerBlock[32];
-    __shared__ int   max[32];
+    __shared__ float vals[WARPS_PER_ROW];  
+    __shared__ float inds[WARPS_PER_ROW];  
 
-    if (threadIdx.x == 0) {
-        max[threadIdx.y] = 0;
-        buffPerBlock[threadIdx.y] = 0.0f;
-        for (int i = 1; i < hidden_dim; i++){
-            if (Z[row*hidden_dim+i] > Z[row*hidden_dim + max[threadIdx.y]]) {
-                max[threadIdx.y] = i;
-            } 
+    unsigned mask = __ballot_sync(FULL_MASK, threadIdx.x < hidden_dim);
+
+    float val = -INFINITY;
+    int ind   = -1;
+    if (col < hidden_dim){
+        ind = col;
+        val = Z[row*hidden_dim+col];
+    }
+
+    if (col < hidden_dim){
+        for (unsigned int l = 16; l > 0; l >>= 1){ // you still do over your warp.
+            float tempVal = __shfl_down_sync(mask, val, l);
+            float tempInd = __shfl_down_sync(mask, ind, l);
+            if (tempVal > val){
+                val = tempVal;
+                ind = tempInd;
+            }
+
         }
     }
     __syncthreads();
 
-    if (row < BATCH_SIZE && col < hidden_dim){
-        Z[row*hidden_dim+col] = exp(Z[row*hidden_dim+col] - Z[row*hidden_dim + max[threadIdx.y]]);
+    if (col < hidden_dim && threadIdx.x % 32 == 0){
+        vals[threadIdx.x/32] = val;  
+        inds[threadIdx.x/32] = ind;  
     }
     __syncthreads();
 
-    if (threadIdx.x == 0 && row < BATCH_SIZE) {
-        for (int i =0; i < hidden_dim; i++){
-            buffPerBlock[threadIdx.y] += Z[row*hidden_dim+i];
+    if (col < warpsPerRow){
+        #pragma unroll
+        for (int ss = warpsPerRow/2; ss > 0 ; ss >>= 1){
+            if (col < ss){
+                if (vals[col] < vals[col+ss]){
+                    vals[col] = vals[ss+col];
+                    inds[col] = inds[ss+col];
+                }
+            }
         }
     }
     __syncthreads();
 
-    A[row*hidden_dim+col] = Z[row*hidden_dim+col]/buffPerBlock[threadIdx.y];
+    if (col==0){
+        pred[row] = (inds[0]==static_cast<int>(y_true[row]))? 1:0;
+    }
+}
+
+
+__global__ void softmax(float* A, float *Z, int hidden_dim, int warpsPerRow){
+
+    int col = threadIdx.x; 
+    int row = blockIdx.x; 
+
+    extern __shared__ float red[];  
+
+    unsigned mask = __ballot_sync(FULL_MASK, threadIdx.x < hidden_dim);
+    float val = Z[row*hidden_dim+col];
+
+    if (col < hidden_dim){
+        #pragma unroll
+        for (unsigned int l = 16; l > 0; l >>= 1){ // you still do over your warp.
+            val = fmaxf(val,__shfl_down_sync(mask, val, l));
+        }
+    }
+    __syncthreads();
+    // now each val of the first thread in the warps contains the max per warp.
+
+    if (col < hidden_dim && threadIdx.x % 32 == 0){
+        red[threadIdx.x/32] = val;  // red is a 32 size in shared mem; it contains maxes of every entry 
+    }
+    __syncthreads();
+
+    if (col < warpsPerRow){
+        #pragma unroll
+        for (int ss = warpsPerRow/2; ss > 0 ; ss >>= 1){
+            if (col < ss){
+                red[col] = fmaxf(red[col], red[ss+col]);
+            }
+        }
+    }
+    __syncthreads();
+
+    if (col < hidden_dim){ // same shared memory
+        val = exp(Z[row*hidden_dim+col] - red[0]);
+        A[row*hidden_dim+col] = val;
+    }
+    __syncthreads();
+
+
+    if (col < hidden_dim){
+        #pragma unroll
+        for (unsigned int l = 16; l > 0; l >>= 1){
+            val += __shfl_down_sync(mask, val, l);
+        }
+    }
+    __syncthreads();
+
+    if (col % 32 == 0 && col < hidden_dim){
+        red[threadIdx.x/32] =  val;
+    }
+    __syncthreads();
+
+    if (col < warpsPerRow){
+        #pragma unroll
+        for (int ss = warpsPerRow/2; ss > 0 ; ss >>= 1){
+            if (col < ss){
+                red[col] += red[ss+col];
+            }
+        }
+    }
+    __syncthreads();
+
+    if (col < hidden_dim){ 
+        A[row*hidden_dim+col] /= red[0];
+    }
 }
 
 

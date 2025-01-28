@@ -5,12 +5,13 @@
 #include <cmath>
 #include <thread>
 #include <cudnn.h>
-
+#include <numeric>
 #include "backprop.cuh"
 #include "utils.hpp"
 
 const int IMAGE_SIZE  = 784;
 const int NUM_IMAGES  = 60000;
+const int NUM_IMAGES_TEST  = 10000;
 
 const int INPUT_DIM  = 784;
 const int HIDDEN_DIM = 256;
@@ -51,6 +52,59 @@ void back(int d1, int d2, float* dev_var, std::string vName){
         exit(EXIT_FAILURE); \
     } \
 }
+
+
+
+float model_infer(float *X_test,
+                  float *y_test,
+                  float *W1_d, 
+                  float *b1_d, 
+                  float *W2_d, 
+                  float *b2_d
+){
+    
+    dim3 blockDim16(16,16);     
+    dim3 gridDimHB(ceil(HIDDEN_DIM/16.0f),ceil(NUM_IMAGES_TEST/16.0f)); // 16 x 4
+    dim3 gridDimOB(ceil(OUTPUT_DIM/16.0f),ceil(NUM_IMAGES_TEST/16.0f)); // 1 x 4
+    dim3 gridDimOH(ceil(OUTPUT_DIM/16.0f),ceil(HIDDEN_DIM/16.0f)); //1 x 16
+    dim3 gridDimHI(ceil(HIDDEN_DIM/16.0f),ceil(INPUT_DIM/16.0f)); // 16 x 49
+
+    float *Y1_d, *Z1_d, *A1_d, *Y2_d, *Z2_d, *A2_d;
+    float *pred;
+    cudaMalloc(&pred, sizeof(float)*NUM_IMAGES_TEST);
+
+
+    cudaMalloc(&Y1_d, sizeof(float)*NUM_IMAGES_TEST*HIDDEN_DIM);
+    cudaMalloc(&Z1_d, sizeof(float)*NUM_IMAGES_TEST*HIDDEN_DIM);
+    cudaMalloc(&A1_d, sizeof(float)*NUM_IMAGES_TEST*HIDDEN_DIM);
+    cudaMalloc(&Y2_d, sizeof(float)*NUM_IMAGES_TEST*OUTPUT_DIM);
+    cudaMalloc(&Z2_d, sizeof(float)*NUM_IMAGES_TEST*OUTPUT_DIM);
+    cudaMalloc(&A2_d, sizeof(float)*NUM_IMAGES_TEST*OUTPUT_DIM);
+
+    mult<<<gridDimHB, blockDim16>>>(X_test, W1_d, Y1_d, 
+                   NUM_IMAGES_TEST, INPUT_DIM, HIDDEN_DIM);
+
+    coalesced_bias<<<gridDimHB, blockDim16>>>(Z1_d, Y1_d, b1_d, HIDDEN_DIM);
+
+    relu<<<gridDimHB, blockDim16>>>(A1_d, Z1_d, HIDDEN_DIM);
+    mult<<<gridDimOB, blockDim16>>>(A1_d, W2_d, Y2_d,NUM_IMAGES_TEST, HIDDEN_DIM, OUTPUT_DIM);
+    coalesced_bias<<<gridDimOB, blockDim16>>>(Z2_d, Y2_d, b2_d, OUTPUT_DIM);
+    int warpsPerRow = OUTPUT_DIM/32;
+    argmax<<<BATCH_SIZE, OUTPUT_DIM, warpsPerRow*sizeof(float)>>>(A2_d, Z2_d, OUTPUT_DIM, warpsPerRow, y_test, pred); 
+
+    cudaDeviceSynchronize();
+
+    std::vector<float> pr(NUM_IMAGES_TEST);
+    cudaMemcpy(pr.data(),pred, NUM_IMAGES_TEST*sizeof(float), cudaMemcpyDeviceToHost);
+
+    // this is supposed to be a B X output.
+    float sum = std::accumulate(pr.begin(), pr.end(), 0.0f);
+    std::cout << "correct ans are " << sum << "\n";
+    float accuracy = sum/NUM_IMAGES_TEST;
+
+    return accuracy;
+}
+
 int main(){
     std::vector<float> X_train(NUM_IMAGES*IMAGE_SIZE), y_train(NUM_IMAGES);
 
@@ -63,6 +117,23 @@ int main(){
                         )) {
             return -1;
         }
+
+    std::vector<float> X_test(NUM_IMAGES_TEST*IMAGE_SIZE), y_test(NUM_IMAGES_TEST);
+    if (!read_mnist_data("data/test_mnist_images.bin",
+                         "data/test_mnist_labels.bin",
+                          X_test, 
+                          y_test,
+                          NUM_IMAGES_TEST,
+                          IMAGE_SIZE
+                        )) {
+            return -1;
+        }
+
+    float *X_test_d, *y_test_d;
+    cudaMalloc((void **) &X_test_d, sizeof(float)*NUM_IMAGES_TEST*IMAGE_SIZE);
+    cudaMalloc((void **) &y_test_d, sizeof(float)*NUM_IMAGES_TEST);
+    cudaMemcpy(X_test_d, X_test.data(), X_test.size()*sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(y_test_d, y_test.data(), y_test.size()*sizeof(float), cudaMemcpyHostToDevice);
 
     // first batch //
     std::vector<float> X_batch(BATCH_SIZE * INPUT_DIM);  // Batch_size (y)  x INPUT_DIM (x) >> [64, 784jj]
@@ -140,23 +211,12 @@ int main(){
     //cudaMalloc((void **) &dA2_d, sizeof(float)*BATCH_SIZE*OUTPUT_DIM);
 
     dim3 blockDim16(16,16);     
-
     dim3 gridDimHB(ceil(HIDDEN_DIM/16.0f),ceil(BATCH_SIZE/16.0f)); // 16 x 4
     dim3 gridDimOB(ceil(OUTPUT_DIM/16.0f),ceil(BATCH_SIZE/16.0f)); // 1 x 4
     dim3 gridDimOH(ceil(OUTPUT_DIM/16.0f),ceil(HIDDEN_DIM/16.0f)); //1 x 16
     dim3 gridDimHI(ceil(HIDDEN_DIM/16.0f),ceil(INPUT_DIM/16.0f)); // 16 x 49
 
-    printf("Launch config HB: blocks(%d,%d) threads(%d,%d)\n", 
-       gridDimHB.x, gridDimHB.y, blockDim16.x, blockDim16.y);
-
-    printf("Launch config OB: blocks(%d,%d) threads(%d,%d)\n", 
-       gridDimOB.x, gridDimOB.y, blockDim16.x, blockDim16.y);
-    
-
-    printf("Launch config HI: blocks(%d,%d) threads(%d,%d)\n", 
-       gridDimHI.x, gridDimHI.y, blockDim16.x, blockDim16.y);
-
-    for (unsigned int batch = 0 ; batch < 50; batch++){
+    for (unsigned int batch = 0 ; batch < 500; batch++){
 
         CHECK_CUDA(cudaMemcpy(X_train_d, X_train.data()+batch*BATCH_SIZE*INPUT_DIM, X_batch.size()*sizeof(float), cudaMemcpyHostToDevice));
         CHECK_CUDA(cudaMemcpy(y_train_d, y_train.data()+batch*BATCH_SIZE, y_batch.size()*sizeof(float), cudaMemcpyHostToDevice));
@@ -164,8 +224,7 @@ int main(){
         // forward pass
 
         // first layer
-        mult<<<gridDimHB, blockDim16>>>(X_train_d, W1_d, Y1_d, 
-                        BATCH_SIZE, INPUT_DIM, HIDDEN_DIM);
+        mult<<<gridDimHB, blockDim16>>>(X_train_d, W1_d, Y1_d, BATCH_SIZE, INPUT_DIM, HIDDEN_DIM);
         CHECK_KERNEL();
         CHECK_CUDA(cudaDeviceSynchronize());
 
@@ -191,8 +250,9 @@ int main(){
         CHECK_CUDA(cudaDeviceSynchronize());
 
         //back(2, HIDDEN_DIM, Z2_d, "Z2_d, after + b2_d");
-
-        softmax<<<gridDimOB, blockDim16>>>(A2_d, Z2_d, OUTPUT_DIM); 
+        // softmaxing 
+        int warpsPerRow = OUTPUT_DIM/32;
+        softmax<<<BATCH_SIZE, OUTPUT_DIM, warpsPerRow*sizeof(float)>>>(A2_d, Z2_d, OUTPUT_DIM, warpsPerRow); 
         CHECK_KERNEL();
         CHECK_CUDA(cudaDeviceSynchronize());
 
@@ -208,7 +268,20 @@ int main(){
         CHECK_KERNEL();
         CHECK_CUDA(cudaDeviceSynchronize());
 
-        back(1,1,l, "loss per batch");
+
+        if (batch%100 == 0){
+            float loss = 0.0f;
+            cudaMemcpy(&loss, l, sizeof(float), cudaMemcpyDeviceToHost);
+            std::cout << "Loss for batch "  << batch << ": " << loss << "\n";
+
+            float acc = model_infer(X_test_d,
+                                    y_test_d,
+                                    W1_d, 
+                                    b1_d, 
+                                    W2_d, 
+                                    b2_d);
+            std::cout << "we gon make it soon! " << acc << "\n";
+        }
 
 
         //// backward starts here: 
@@ -253,17 +326,6 @@ int main(){
         update1D<<<1,INPUT_DIM>>>(b2_d, db2_d, OUTPUT_DIM);
         CHECK_KERNEL();
         CHECK_CUDA(cudaDeviceSynchronize());
-
-        cudaError_t err = cudaGetLastError();
-        if (err != cudaSuccess) {
-            std::cerr << "Kernel launch failed: " << cudaGetErrorString(err) << "\n";
-            return;
-        }
-
-
-
-        //back(INPUT_DIM, HIDDEN_DIM, dW1_d, "dW1: ");
-        //back(1, HIDDEN_DIM, b1_d, "b1: ");
 
     }
 

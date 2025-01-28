@@ -56,15 +56,16 @@ dZ_{ij} = \frac{1}{m}(A_{ij} - \mathbf{1}\{j = y_i\})
     - [x] Implement the derivations 
     - [x] Verify with CPU code (just use o1 code) 
 
-- [ ] Add complexity (for the sake of using more compute):
-    - [ ] Add one layer 
-    - [ ] start comparing to pytorch/python
+- [x] Add complexity (for the sake of using more compute):
+    - [x] Add one layer 
+    - [x] start comparing to pytorch/python
     - [X] Systematic way to transfer weights accross between pytorch and C++.
 
 - [ ] Optimize (now that you have more compute complexity to do smth):
+    - [ ] Make softmax of `(2048x1024)` under 30 μs
+    - [x] warp level primitives, is it even useful? 1000% all day.
     - [ ] profile your code, know how to use nsight 
     - [ ] use cuda primitives for math ops (any differences?)
-    - [ ] warp level primitives, is it even useful?
     - [ ] high batch_size and profile your code. 
     - [ ] compare / profile benchmark / have fun.
     - [ ] play with compiler options, precisions. 
@@ -74,8 +75,7 @@ dZ_{ij} = \frac{1}{m}(A_{ij} - \mathbf{1}\{j = y_i\})
 
 Few small trips:
 * Profile your code, use NVIDIA NSIGHTs.
-
-
+* softmax trip
 
 ### Take this somewhere else:
 

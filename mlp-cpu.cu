@@ -404,7 +404,7 @@ int main() {
     // --- 3) Set training hyperparameters ---
     int numBatches = NUM_IMAGES / BATCH_SIZE; // ignoring leftover
     float lr = 0.0001f;  // learning rate
-    int n_epochs = 1;
+    int n_epochs = 2;
     // For demonstration, we can run a limited number of batches, e.g.:
     
     // Buffers for forward and backward pass for layer1 and layer2.
@@ -426,12 +426,11 @@ int main() {
     const int NUM_TEST_IMAGES = 10000;
     float testAcc = 0.0f;
 
-    numBatches = 2;
-    
     // --- 4) Training Loop (1 epoch) ---
     for (int epoch = 0; epoch < n_epochs; ++epoch) {
         for (int batchIdx = 0; batchIdx < numBatches; ++batchIdx) {
-            std::cout << "\nEpoch " << epoch+1 << " Batch " << batchIdx+1 << "\n";
+//            std::cout << "\nEpoch " << epoch+1 << " Batch " << batchIdx+1 << "\n";
+
             int start = batchIdx * BATCH_SIZE;
             int end = start + BATCH_SIZE;
             
@@ -452,7 +451,6 @@ int main() {
                                      y_batch,
                                      BATCH_SIZE, INPUT_DIM, HIDDEN_DIM, OUTPUT_DIM,
                                      Z1, A1, Z2, A2);
-            std::cout << "Loss: " << loss << "\n";
             
             // --- Backward Pass ---
             backward_cpu(X_batch, Z1, A1, A2, y_batch,
@@ -462,6 +460,8 @@ int main() {
             
             // Every 100 batches (or here, for our demo, at the end) test the model:
             if ((batchIdx + 1) % 100 == 0 || (batchIdx + 1) == numBatches) {
+                std::cout << "\nEpoch " << epoch+1 << " Batch " << batchIdx+1 << "\n";
+                std::cout << "Loss: " << loss << "\n";
                 testAcc = test_model_cpu(W1, b1, W2, b2,
                                          testImagesBin,
                                          testLabelsBin,
