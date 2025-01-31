@@ -16,7 +16,7 @@ __global__ void softmax(float* A, float *Z, int hidden_dim, int warpsPerRow);
 __global__ void argmax(float* A, float *Z, int hidden_dim, int warpsPerRow, float * y_true, float *pred);
 __global__ void logloss(float* L, float *A, float* y_train, int hidden_dim);
 __global__ void rLoss(float *l, float* L);
-__global__ void relu(float* A, float* Z, int hidden_dim);
+__global__ void relu(float* A, float* Z, int hidden_dim, int B);
 
 // backward funcitons, please change names afterwards.
 
@@ -30,6 +30,9 @@ __global__ void db(float* db, float* dZ, int hidden_dim);
 // upadtes:
 __global__ void update1D(float* W, float* dW, int x);
 __global__ void update2D(float* W, float* dW, int y, int x);
+
+__global__ void update1DAdam(float* W, float* dW, float *m, float *v, int step, int x);
+__global__ void update2DAdam(float* W, float* dW, float *m, float *v, int step,  int Wy, int Wx);
 
 
 // Host functions

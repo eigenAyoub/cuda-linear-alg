@@ -5,7 +5,8 @@
 *.txt
 *.npy
 *.csv
-
+*.sqlite
+*.nsys-rep
 
 code-you-might-need.md
 

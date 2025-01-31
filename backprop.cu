@@ -13,7 +13,45 @@
 #define WARPS_PER_ROW 1 
 
 // backprop stuff
+#define ALPHA 0.0001
+#define BETA1 0.9
+#define BETA2 0.999
+#define EPS   1e-9
 
+// adam working like a charm.
+// putting EPS at last (not the canonical form) gives much better resutls.
+// not so sure why.
+
+__global__ void 
+update1DAdam(float* W, float* dW, float *m, float *v, int step, int x) {
+    int row = threadIdx.x + blockDim.x*blockIdx.x;
+    if (row<x){
+        m[row] = BETA1*m[row] + (1-BETA1)*dW[row];
+        v[row] = BETA2*v[row] + (1-BETA2)*dW[row]*dW[row];
+        //float mth = m[row]/(1-powf(BETA2, step));
+        //float vth = v[row]/(1-powf(BETA2, step));
+        //W[row] -= ALPHA*(mth/(sqrtf(vth)+EPS));
+        W[row] -= ALPHA*(m[row]/(sqrtf(v[row])+EPS))*(sqrtf(1-powf(BETA2, step))/(1-powf(BETA1, step)));
+    }
+}
+
+__global__ void 
+update2DAdam(float* W, float* dW, float *m, float *v, int step,  int Wy, int Wx) {
+
+    int row = threadIdx.y + blockDim.y*blockIdx.y;
+    int col = threadIdx.x + blockDim.x*blockIdx.x;
+
+    if (row<Wy && col<Wx){
+        m[row*Wx+col] = BETA1*m[row*Wx+col] + (1-BETA1)*dW[row*Wx+col];
+        v[row*Wx+col] = BETA2*v[row*Wx+col] + (1-BETA2)*dW[row*Wx+col]*dW[row*Wx+col];
+        //float mth = m[row*Wx+col]/(1-powf(BETA2, step));
+        //float vth = v[row*Wx+col]/(1-powf(BETA2, step));
+        //W[row*Wx + col] -= ALPHA*(mth/(sqrtf(vth)+EPS));
+
+        float alpha_t = ALPHA*(m[row*Wx+col]/(sqrtf(v[row*Wx+col])+EPS));
+        W[row*Wx + col] -= alpha_t*(sqrtf(1-powf(BETA2, step))/(1-powf(BETA1, step)));
+    }
+}
 
 __global__ void 
 update1D(float* W, float* dW, int x) {
@@ -100,7 +138,8 @@ __global__ void argmax(float* A, float *Z, int hidden_dim, int warpsPerRow, floa
 
     if (col < hidden_dim && threadIdx.x % 32 == 0){
         vals[threadIdx.x/32] = val;  
-        inds[threadIdx.x/32] = ind;  
+        //inds[threadIdx.x/32] = (float)ind;  
+        inds[threadIdx.x/32] = (float) ind;  
     }
     __syncthreads();
 
@@ -118,7 +157,8 @@ __global__ void argmax(float* A, float *Z, int hidden_dim, int warpsPerRow, floa
     __syncthreads();
 
     if (col==0){
-        pred[row] = (inds[0]==static_cast<int>(y_true[row]))? 1:0;
+        //pred[row] = (inds[0]==static_cast<int>(y_true[row]))? 1.0f:0.0f;
+        pred[row] = (inds[0]==static_cast<int>(y_true[row]))? 1.0f:0.0f;
     }
 }
 
@@ -367,12 +407,12 @@ rLoss(float *l, float* L){
 }
 
 __global__ void
-relu(float* A, float* Z, int hidden_dim){
+relu(float* A, float* Z, int hidden_dim, int B){
 
     int row = blockIdx.y*blockDim.y + threadIdx.y ;
     int col = blockIdx.x*blockDim.x + threadIdx.x ;
 
-    if (row < BATCH_SIZE && col < hidden_dim){
+    if (row < B && col < hidden_dim){
         A[row*hidden_dim+col]  = (Z[row*hidden_dim+col] > 0)? Z[row*hidden_dim+col]:0.0f;
     }
 }
